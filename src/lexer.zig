@@ -13,7 +13,7 @@ pub const Token = struct {
         .{ "return", .keyword_return },
         .{ "int", .type_int },
         .{ "void", .keyword_void },
-        .{ "main", .keyword_main },
+        .{ "main", .keyword_main }, // todo remove
     });
 
     pub fn getKeyword(bytes: []const u8) ?Tag {
@@ -30,7 +30,7 @@ pub const Token = struct {
         type_int,
         keyword_void,
         keyword_return,
-        keyword_main, // identifiers happen later
+        keyword_main, // identifiers happen later. todo remove
 
         identifier, // useful for state for now
         invalid,
@@ -69,7 +69,7 @@ pub const Token = struct {
 
 pub const Tokenizer = struct {
     buffer: [:0]const u8,
-    index: usize,
+    index: usize = 0,
 
     /// For debugging purposes.
     pub fn dump(self: *Tokenizer, token: *const Token) void {
@@ -77,11 +77,7 @@ pub const Tokenizer = struct {
     }
 
     pub fn init(buffer: [:0]const u8) Tokenizer {
-        // Skip the UTF-8 BOM if present.
-        return .{
-            .buffer = buffer,
-            .index = if (std.mem.startsWith(u8, buffer, "\xEF\xBB\xBF")) 3 else 0,
-        };
+        return .{ .buffer = buffer };
     }
 
     const State = enum {

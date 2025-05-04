@@ -5,7 +5,7 @@ pub fn main() !void {
     var debug_allocator = std.heap.DebugAllocator(.{
         .stack_trace_frames = 16,
     }).init;
-    // defer _ = debug_allocator.deinit();
+    defer _ = debug_allocator.deinit();
 
     const gpa = debug_allocator.allocator();
 
@@ -47,10 +47,14 @@ pub fn run(
             0,
         );
         try std.fs.cwd().deleteFile(pp_out); // cleanup
+        defer alloc.free(src);
 
         var tokenizer = lexer.Tokenizer.init(src);
         while (tokenizer.next()) |token| {
-            std.debug.print("{?}: {s}\n", .{ token.tag, src[token.loc.start..token.loc.end] });
+            std.debug.print("{?}: {s}\n", .{
+                token.tag,
+                src[token.loc.start..token.loc.end],
+            });
 
             switch (token.tag) {
                 .invalid => return error.LexFail,
@@ -93,16 +97,25 @@ pub const Mode = enum {
 pub fn parse_args() !Args {
     var args = std.process.args();
     _ = args.skip();
-    const path = args.next() orelse
-        return error.PathNotFound;
 
-    const mode: Mode = if (args.next()) |arg|
-        std.meta.stringToEnum(Mode, arg[2..]) orelse
-            return error.UnrecognizedFlag
-    else
-        .compile;
+    var path: ?[:0]const u8 = null;
+    var mode: Mode = .compile;
 
-    return .{ .path = path, .mode = mode };
+    while (args.next()) |arg| {
+        if (arg[0] == '-') {
+            mode = std.meta.stringToEnum(Mode, arg[2..]) orelse
+                return error.UnrecognizedFlag;
+        } else if (path == null) {
+            path = arg;
+        } else {
+            return error.PathDuplicated;
+        }
+    }
+
+    return .{
+        .path = path orelse return error.PathNotFound,
+        .mode = mode,
+    };
 }
 
 fn get_output_paths(
@@ -114,7 +127,7 @@ fn get_output_paths(
     []const u8,
 } {
     // meant to own the allocation
-    const exe = alloc.dupe(u8, get_exe_name(input_path));
+    const exe = try alloc.dupe(u8, strip_extension(input_path));
     errdefer alloc.free(exe);
 
     const pp = try std.mem.join(
@@ -133,10 +146,10 @@ fn get_output_paths(
     return .{ pp, @"asm", exe };
 }
 
-fn get_exe_name(path: []const u8) []const u8 {
+fn strip_extension(path: []const u8) []const u8 {
     // copied from std.fs.path.stem with changes
     const index = std.mem.lastIndexOfScalar(u8, path, '.') orelse
-        return path[0..];
+        return path;
     if (index == 0) return path;
     return path[0..index];
 }
