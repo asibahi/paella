@@ -1,4 +1,5 @@
 const std = @import("std");
+const lexer = @import("lexer.zig");
 
 pub fn main() !void {
     var debug_allocator = std.heap.DebugAllocator(.{
@@ -18,7 +19,7 @@ pub fn run(
 ) !void {
     const input_path = args.path;
     const pp_out, const asm_out, const exe =
-        get_output_paths(alloc, input_path);
+        try get_output_paths(alloc, input_path);
     defer {
         alloc.free(pp_out);
         alloc.free(asm_out);
@@ -26,7 +27,7 @@ pub fn run(
     }
 
     { // preprocessor
-        const child = std.process.Child.init(
+        var child = std.process.Child.init(
             &.{ "gcc", "-E", "-P", input_path, "-o", pp_out },
             alloc,
         );
@@ -40,12 +41,32 @@ pub fn run(
         _ = args.mode;
         // mode controls compilation here
 
+        const src: [:0]const u8 = try std.fs.cwd().readFileAllocOptions(
+            alloc,
+            pp_out,
+            std.math.maxInt(usize),
+            null,
+            @alignOf(u8),
+            0,
+        );
+        var tokenizer = lexer.Tokenizer.init(src);
+        while (true) {
+            const token = tokenizer.next();
+            switch (token.tag) {
+                .invalid => return error.LexFail,
+                .eof => break,
+                else => {},
+            }
+        }
+
+        if (args.mode == .lex) return;
+
         // todo
         // take from path `pp_out` output to path `asm_out`
     }
 
     { // assembler
-        const child = std.process.Child.init(
+        var child = std.process.Child.init(
             &.{ "gcc", asm_out, "-o", exe },
             alloc,
         );
