@@ -25,26 +25,20 @@ pub const Token = struct {
         r_paren,
         l_brace,
         r_brace,
-
         semicolon,
-
         number_literal,
-
         type_int,
-
         keyword_void,
         keyword_return,
         keyword_main, // identifiers happen later
 
         identifier, // useful for state for now
-        eof,
         invalid,
 
         pub fn lexeme(tag: Tag) ?[]const u8 {
             return switch (tag) {
                 .invalid,
                 .number_literal,
-                .eof,
                 .identifier,
                 => null,
 
@@ -66,7 +60,6 @@ pub const Token = struct {
             return tag.lexeme() orelse switch (tag) {
                 .invalid => "invalid token",
                 .identifier => "an identifier",
-                .eof => "EOF",
                 .number_literal => "a number literal",
                 else => unreachable,
             };
@@ -95,10 +88,9 @@ pub const Tokenizer = struct {
         start,
         identifier,
         int,
-        invalid,
     };
 
-    pub fn next(self: *Tokenizer) Token {
+    pub fn next(self: *Tokenizer) ?Token {
         var result: Token = .{
             .tag = undefined,
             .loc = .{
@@ -110,15 +102,9 @@ pub const Tokenizer = struct {
             .start => switch (self.buffer[self.index]) {
                 0 => {
                     if (self.index == self.buffer.len) {
-                        return .{
-                            .tag = .eof,
-                            .loc = .{
-                                .start = self.index,
-                                .end = self.index,
-                            },
-                        };
+                        return null;
                     } else {
-                        continue :state .invalid;
+                        result.tag = .invalid;
                     }
                 },
                 ' ', '\n', '\t', '\r' => {
@@ -150,25 +136,12 @@ pub const Tokenizer = struct {
                     result.tag = .r_brace;
                     self.index += 1;
                 },
-
                 '0'...'9' => {
                     result.tag = .number_literal;
                     self.index += 1;
                     continue :state .int;
                 },
-                else => continue :state .invalid,
-            },
-
-            .invalid => {
-                self.index += 1;
-                switch (self.buffer[self.index]) {
-                    0 => if (self.index == self.buffer.len) {
-                        result.tag = .invalid;
-                    } else {
-                        continue :state .invalid;
-                    },
-                    else => continue :state .invalid,
-                }
+                else => result.tag = .invalid,
             },
 
             .identifier => {
@@ -189,7 +162,7 @@ pub const Tokenizer = struct {
                     self.index += 1;
                     continue :state .int;
                 },
-                'a'...'z', 'A'...'Z' => continue :state .invalid,
+                'a'...'z', 'A'...'Z' => result.tag = .invalid,
                 else => {},
             },
         }

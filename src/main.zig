@@ -5,7 +5,7 @@ pub fn main() !void {
     var debug_allocator = std.heap.DebugAllocator(.{
         .stack_trace_frames = 16,
     }).init;
-    defer _ = debug_allocator.deinit();
+    // defer _ = debug_allocator.deinit();
 
     const gpa = debug_allocator.allocator();
 
@@ -38,10 +38,7 @@ pub fn run(
     }
 
     { // compiler
-        _ = args.mode;
-        // mode controls compilation here
-
-        const src: [:0]const u8 = try std.fs.cwd().readFileAllocOptions(
+        const src = try std.fs.cwd().readFileAllocOptions(
             alloc,
             pp_out,
             std.math.maxInt(usize),
@@ -49,12 +46,14 @@ pub fn run(
             @alignOf(u8),
             0,
         );
+        try std.fs.cwd().deleteFile(pp_out); // cleanup
+
         var tokenizer = lexer.Tokenizer.init(src);
-        while (true) {
-            const token = tokenizer.next();
+        while (tokenizer.next()) |token| {
+            std.debug.print("{?}: {s}\n", .{ token.tag, src[token.loc.start..token.loc.end] });
+
             switch (token.tag) {
                 .invalid => return error.LexFail,
-                .eof => break,
                 else => {},
             }
         }
@@ -114,13 +113,8 @@ fn get_output_paths(
     []const u8,
     []const u8,
 } {
-    const exe = try std.fs.path.join(
-        alloc,
-        &.{
-            std.fs.path.dirname(input_path) orelse "",
-            std.fs.path.stem(input_path),
-        },
-    );
+    // meant to own the allocation
+    const exe = alloc.dupe(u8, get_exe_name(input_path));
     errdefer alloc.free(exe);
 
     const pp = try std.mem.join(
@@ -137,4 +131,12 @@ fn get_output_paths(
     );
 
     return .{ pp, @"asm", exe };
+}
+
+fn get_exe_name(path: []const u8) []const u8 {
+    // copied from std.fs.path.stem with changes
+    const index = std.mem.lastIndexOfScalar(u8, path, '.') orelse
+        return path[0..];
+    if (index == 0) return path;
+    return path[0..index];
 }
