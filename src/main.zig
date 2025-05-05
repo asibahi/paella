@@ -1,5 +1,7 @@
 const std = @import("std");
+
 const lexer = @import("lexer.zig");
+const parser = @import("parser.zig");
 
 pub fn main() !void {
     var debug_allocator = std.heap.DebugAllocator(.{
@@ -50,19 +52,34 @@ pub fn run(
         defer alloc.free(src);
 
         var tokenizer = lexer.Tokenizer.init(src);
-        while (tokenizer.next()) |token| {
-            std.debug.print("{?}: {s}\n", .{
-                token.tag,
-                src[token.loc.start..token.loc.end],
-            });
 
-            switch (token.tag) {
-                .invalid => return error.LexFail,
-                else => {},
-            }
+        switch (args.mode) {
+            .lex => {
+                while (tokenizer.next()) |token| {
+                    // std.debug.print("{?}: {s}\n", .{
+                    //     token.tag,
+                    //     src[token.loc.start..token.loc.end],
+                    // });
+
+                    switch (token.tag) {
+                        .invalid => return error.LexFail,
+                        else => {},
+                    }
+                }
+                return;
+            },
+            .parse => {
+                var arena_allocator = std.heap.ArenaAllocator.init(alloc);
+                const arena = arena_allocator.allocator();
+                defer arena_allocator.deinit();
+
+                const prgm = try parser.parse_prgm(arena, &tokenizer);
+
+                std.debug.print("{?}\n", .{prgm});
+                return;
+            },
+            else => @panic("unimplemented"),
         }
-
-        if (args.mode == .lex) return;
 
         // todo
         // take from path `pp_out` output to path `asm_out`

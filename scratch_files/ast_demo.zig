@@ -1,10 +1,8 @@
 const std = @import("std");
 var debug_allocator = std.heap.DebugAllocator(.{}).init;
 
-
 // ast rep article: https://keleshev.com/abstract-syntax-tree-an-example-in-c/
 //
-
 
 pub fn main() !void {
     const gpa = debug_allocator.allocator();
@@ -28,9 +26,15 @@ pub fn main() !void {
 
 const Expr = union(enum) {
     number: u64,
-    add: struct { *Expr, *Expr },
-    sub: struct { *Expr, *Expr },
+    bin_add: Two,
+    bin_sub: Two,
+    un_negate: *Expr,
+    un_not: *Expr,
 
+    const Two = struct {
+        lhs: *Expr,
+        rhs: *Expr,
+    };
 };
 
 const Stmt = union(enum) {
