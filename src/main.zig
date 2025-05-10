@@ -3,6 +3,8 @@ const std = @import("std");
 const lexer = @import("lexer.zig");
 const parser = @import("parser.zig");
 
+const asm_gen = @import("asm_gen.zig");
+
 pub fn main() !void {
     var debug_allocator = std.heap.DebugAllocator(.{
         .stack_trace_frames = 16,
@@ -75,14 +77,38 @@ pub fn run(
 
                 const prgm = try parser.parse_prgm(arena, &tokenizer);
 
-                std.debug.print("{?}\n", .{prgm});
+                std.debug.print("{}\n", .{prgm});
                 return;
             },
-            else => @panic("unimplemented"),
-        }
+            .codegen => {
+                var arena_allocator = std.heap.ArenaAllocator.init(alloc);
+                const arena = arena_allocator.allocator();
+                defer arena_allocator.deinit();
 
-        // todo
-        // take from path `pp_out` output to path `asm_out`
+                const ast_prgm = try parser.parse_prgm(arena, &tokenizer);
+
+                const prgm = try asm_gen.prgm_to_asm(arena, ast_prgm.*);
+
+                std.debug.print("{}\n", .{prgm});
+                return;
+            },
+            .compile, .assembly => {
+                var arena_allocator = std.heap.ArenaAllocator.init(alloc);
+                const arena = arena_allocator.allocator();
+                defer arena_allocator.deinit();
+
+                const ast_prgm = try parser.parse_prgm(arena, &tokenizer);
+                const prgm = try asm_gen.prgm_to_asm(arena, ast_prgm.*);
+
+                const asm_file = try std.fs.cwd().createFile(asm_out, .{});
+                defer asm_file.close();
+                var asm_writer = asm_file.writer();
+
+                try asm_writer.print("{gen}\n", .{prgm});
+
+                if (args.mode == .assembly) return;
+            },
+        }
     }
 
     { // assembler
