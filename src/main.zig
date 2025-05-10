@@ -76,8 +76,12 @@ pub fn run(
                 defer arena_allocator.deinit();
 
                 const prgm = try parser.parse_prgm(arena, &tokenizer);
+                try std.json.stringify(
+                    prgm,
+                    .{ .whitespace = .indent_4 },
+                    std.io.getStdErr().writer(),
+                );
 
-                std.debug.print("{}\n", .{prgm});
                 return;
             },
             .codegen => {
@@ -88,8 +92,12 @@ pub fn run(
                 const ast_prgm = try parser.parse_prgm(arena, &tokenizer);
 
                 const prgm = try asm_gen.prgm_to_asm(arena, ast_prgm.*);
+                try std.json.stringify(
+                    prgm,
+                    .{ .whitespace = .indent_4 },
+                    std.io.getStdErr().writer(),
+                );
 
-                std.debug.print("{}\n", .{prgm});
                 return;
             },
             .compile, .assembly => {
@@ -104,7 +112,7 @@ pub fn run(
                 defer asm_file.close();
                 var asm_writer = asm_file.writer();
 
-                try asm_writer.print("{gen}\n", .{prgm});
+                try asm_writer.print("{}\n", .{prgm});
 
                 if (args.mode == .assembly) return;
             },
