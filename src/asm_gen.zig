@@ -38,10 +38,10 @@ fn stmt_to_asm(
         .@"return" => |value| {
             var result: std.ArrayListUnmanaged(assembly.Inst) = .empty;
             try result.appendSlice(alloc, &.{
-                .{ .mov = .{
-                    .src = try expr_to_asm(alloc, value.*),
-                    .dst = .reg,
-                } },
+                .{ .mov = .init(
+                    try expr_to_asm(alloc, value.*),
+                    .reg,
+                ) },
 
                 .ret,
             });

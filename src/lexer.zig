@@ -13,7 +13,6 @@ pub const Token = struct {
         .{ "return", .keyword_return },
         .{ "int", .type_int },
         .{ "void", .keyword_void },
-        .{ "main", .keyword_main }, // todo remove
     });
 
     pub fn getKeyword(bytes: []const u8) ?Tag {
@@ -30,7 +29,6 @@ pub const Token = struct {
         type_int,
         keyword_void,
         keyword_return,
-        keyword_main, // identifiers happen later. todo remove
 
         identifier, // useful for state for now
         invalid,
@@ -52,7 +50,6 @@ pub const Token = struct {
                 .type_int => "int",
                 .keyword_void => "void",
                 .keyword_return => "return",
-                .keyword_main => "main",
             };
         }
 

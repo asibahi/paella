@@ -3,6 +3,11 @@ const std = @import("std");
 pub const Prgm = struct {
     func_def: *FuncDef,
 
+    pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
+        self.func_def.deinit(alloc);
+        alloc.destroy(self.func_def);
+    }
+
     pub fn format(
         self: @This(),
         comptime fmt: []const u8,
@@ -24,6 +29,11 @@ pub const Prgm = struct {
 pub const FuncDef = struct {
     name: []const u8,
     instrs: std.ArrayListUnmanaged(Inst),
+
+    pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
+        alloc.free(self.name);
+        self.instrs.deinit(alloc);
+    }
 
     pub fn format(
         self: @This(),
@@ -50,8 +60,17 @@ pub const FuncDef = struct {
 };
 
 pub const Inst = union(enum) {
-    mov: struct { src: Operand, dst: Operand },
+    mov: Mov,
     ret: void,
+
+    const Mov = struct {
+        src: Operand,
+        dst: Operand,
+
+        pub fn init(src: Operand, dst: Operand) @This() {
+            return .{ .src = src, .dst = dst };
+        }
+    };
 
     pub fn format(
         self: @This(),
@@ -62,7 +81,10 @@ pub const Inst = union(enum) {
         if (std.mem.eql(u8, fmt, "gen")) {
             switch (self) {
                 .ret => try writer.writeAll("\tret"),
-                .mov => |mov| try writer.print("\tmovl {[src]gen}, {[dst]gen}", mov),
+                .mov => |mov| try writer.print(
+                    "\tmovl    {[src]gen}, {[dst]gen}",
+                    mov,
+                ),
             }
         } else {
             const w = options.width orelse 0;

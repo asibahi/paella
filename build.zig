@@ -10,7 +10,8 @@ pub fn build(b: *std.Build) void {
         }),
         .optimize = switch (b.release_mode) {
             .off => .Debug,
-            else => .ReleaseSafe,
+            .safe => .ReleaseSafe,
+            else => .ReleaseFast,
         },
     });
 

@@ -2,7 +2,6 @@ const std = @import("std");
 
 const lexer = @import("lexer.zig");
 const parser = @import("parser.zig");
-
 const asm_gen = @import("asm_gen.zig");
 
 pub fn main() !void {
@@ -18,22 +17,22 @@ pub fn main() !void {
 }
 
 pub fn run(
-    alloc: std.mem.Allocator,
+    gpa: std.mem.Allocator,
     args: Args,
 ) !void {
     const input_path = args.path;
     const pp_out, const asm_out, const exe =
-        try get_output_paths(alloc, input_path);
+        try get_output_paths(gpa, input_path);
     defer {
-        alloc.free(pp_out);
-        alloc.free(asm_out);
-        alloc.free(exe);
+        gpa.free(pp_out);
+        gpa.free(asm_out);
+        gpa.free(exe);
     }
 
     { // preprocessor
         var child = std.process.Child.init(
             &.{ "gcc", "-E", "-P", input_path, "-o", pp_out },
-            alloc,
+            gpa,
         );
 
         const term = try child.spawnAndWait();
@@ -43,7 +42,7 @@ pub fn run(
 
     { // compiler
         const src = try std.fs.cwd().readFileAllocOptions(
-            alloc,
+            gpa,
             pp_out,
             std.math.maxInt(usize),
             null,
@@ -51,70 +50,62 @@ pub fn run(
             0,
         );
         try std.fs.cwd().deleteFile(pp_out); // cleanup
-        defer alloc.free(src);
+        defer gpa.free(src);
 
         var tokenizer = lexer.Tokenizer.init(src);
 
-        switch (args.mode) {
-            .lex => {
-                while (tokenizer.next()) |token| {
-                    // std.debug.print("{?}: {s}\n", .{
-                    //     token.tag,
-                    //     src[token.loc.start..token.loc.end],
-                    // });
+        if (args.mode == .lex) {
+            while (tokenizer.next()) |token| {
+                if (@import("builtin").mode == .Debug)
+                    std.debug.print("{s:<16}: {s}\n", .{
+                        @tagName(token.tag),
+                        src[token.loc.start..token.loc.end],
+                    });
 
-                    switch (token.tag) {
-                        .invalid => return error.LexFail,
-                        else => {},
-                    }
+                switch (token.tag) {
+                    .invalid => return error.LexFail,
+                    else => {},
                 }
+            }
+            return;
+        }
+
+        var prgm = arena: {
+            var arena_allocator = std.heap.ArenaAllocator.init(gpa);
+            const arena = arena_allocator.allocator();
+            defer arena_allocator.deinit();
+
+            const ast = try parser.parse_prgm(arena, &tokenizer);
+
+            if (args.mode == .parse) {
+                std.debug.print("{}\n", .{ast});
                 return;
-            },
-            .parse => {
-                var arena_allocator = std.heap.ArenaAllocator.init(alloc);
-                const arena = arena_allocator.allocator();
-                defer arena_allocator.deinit();
+            }
 
-                const prgm = try parser.parse_prgm(arena, &tokenizer);
+            break :arena try asm_gen.prgm_to_asm(gpa, ast.*);
+        };
+        defer prgm.deinit(gpa);
 
-                std.debug.print("{}\n", .{prgm});
-                return;
-            },
-            .codegen => {
-                var arena_allocator = std.heap.ArenaAllocator.init(alloc);
-                const arena = arena_allocator.allocator();
-                defer arena_allocator.deinit();
+        if (args.mode == .codegen) {
+            std.debug.print("{}\n", .{prgm});
+            return;
+        }
 
-                const ast_prgm = try parser.parse_prgm(arena, &tokenizer);
+        { // create assembly file
+            const asm_file = try std.fs.cwd().createFile(asm_out, .{});
+            defer asm_file.close();
+            var asm_writer = asm_file.writer();
 
-                const prgm = try asm_gen.prgm_to_asm(arena, ast_prgm.*);
+            try asm_writer.print("{gen}\n", .{prgm});
 
-                std.debug.print("{}\n", .{prgm});
-                return;
-            },
-            .compile, .assembly => {
-                var arena_allocator = std.heap.ArenaAllocator.init(alloc);
-                const arena = arena_allocator.allocator();
-                defer arena_allocator.deinit();
-
-                const ast_prgm = try parser.parse_prgm(arena, &tokenizer);
-                const prgm = try asm_gen.prgm_to_asm(arena, ast_prgm.*);
-
-                const asm_file = try std.fs.cwd().createFile(asm_out, .{});
-                defer asm_file.close();
-                var asm_writer = asm_file.writer();
-
-                try asm_writer.print("{gen}\n", .{prgm});
-
-                if (args.mode == .assembly) return;
-            },
+            if (args.mode == .assembly) return;
         }
     }
 
     { // assembler
         var child = std.process.Child.init(
             &.{ "gcc", asm_out, "-o", exe },
-            alloc,
+            gpa,
         );
 
         const term = try child.spawnAndWait();

@@ -23,8 +23,7 @@ fn parse_func_def(
 ) !*ast.FuncDef {
     try expect(.type_int, tokens);
 
-    // this should be an identifier but i am taking a rain check
-    try expect(.keyword_main, tokens);
+    const name = try expect_ident(tokens);
 
     try expect(.l_paren, tokens);
     try expect(.keyword_void, tokens);
@@ -35,7 +34,7 @@ fn parse_func_def(
     try expect(.r_brace, tokens);
 
     const ret = try alloc.create(ast.FuncDef);
-    ret.* = .{ .name = "main", .body = body };
+    ret.* = .{ .name = name, .body = body };
 
     return ret;
 }
@@ -82,5 +81,15 @@ fn expect(
     if (tokens.next()) |actual| {
         if (actual.tag != expected)
             return error.SyntaxError;
+    } else return error.SyntaxError;
+}
+
+fn expect_ident(
+    tokens: *lexer.Tokenizer,
+) ![]const u8 {
+    if (tokens.next()) |actual| {
+        if (actual.tag != .identifier)
+            return error.SyntaxError;
+        return tokens.buffer[actual.loc.start..actual.loc.end];
     } else return error.SyntaxError;
 }
