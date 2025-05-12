@@ -52,15 +52,15 @@ pub const Stmt = union(enum) {
         try writer.writeByteNTimes('\t', w);
 
         switch (self) {
-            .@"return" => |expr| {
-                try writer.print("RETURN {}", .{expr});
-            },
+            .@"return" => |expr| try writer.print("RETURN {}", .{expr}),
         }
     }
 };
 
 pub const Expr = union(enum) {
     constant: u64,
+    unop_negate: *Expr,
+    unop_complement: *Expr,
 
     pub fn format(
         self: @This(),
@@ -69,9 +69,10 @@ pub const Expr = union(enum) {
         writer: anytype,
     ) !void {
         switch (self) {
-            .constant => |c| {
-                try writer.print("{d}", .{c});
-            },
+            .constant => |c| try writer.print("{d}", .{c}),
+            // RPN
+            .unop_negate => |e| try writer.print("{} --", .{e}),
+            .unop_complement => |e| try writer.print("{} ~", .{e}),
         }
     }
 };

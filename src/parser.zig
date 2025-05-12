@@ -11,10 +11,7 @@ pub fn parse_prgm(
     // now that we are done, check the tokenizer is emoty.
     if (tokens.next()) |_| return error.ExtraJunk;
 
-    const ret = try alloc.create(ast.Prgm);
-    ret.* = .{ .func_def = func_def };
-
-    return ret;
+    return try create(ast.Prgm, alloc, .{ .func_def = func_def });
 }
 
 fn parse_func_def(
@@ -23,7 +20,7 @@ fn parse_func_def(
 ) !*ast.FuncDef {
     try expect(.type_int, tokens);
 
-    const name = try expect_ident(tokens);
+    const name = try expect(.identifier, tokens);
 
     try expect(.l_paren, tokens);
     try expect(.keyword_void, tokens);
@@ -33,10 +30,7 @@ fn parse_func_def(
     const body = try parse_stmt(alloc, tokens);
     try expect(.r_brace, tokens);
 
-    const ret = try alloc.create(ast.FuncDef);
-    ret.* = .{ .name = name, .body = body };
-
-    return ret;
+    return try create(ast.FuncDef, alloc, .{ .name = name, .body = body });
 }
 
 fn parse_expr(
@@ -51,10 +45,21 @@ fn parse_expr(
             const lit = tokens.buffer[current.loc.start..current.loc.end];
             const res = try std.fmt.parseInt(u64, lit, 10);
 
-            const ret = try alloc.create(ast.Expr);
-            ret.* = .{ .constant = res };
+            return try create(ast.Expr, alloc, .{ .constant = res });
+        },
+        .hyphen => {
+            const inner_exp = try parse_expr(alloc, tokens);
+            return try create(ast.Expr, alloc, .{ .unop_negate = inner_exp });
+        },
+        .tilde => {
+            const inner_exp = try parse_expr(alloc, tokens);
+            return try create(ast.Expr, alloc, .{ .unop_complement = inner_exp });
+        },
+        .l_paren => {
+            const inner_exp = try parse_expr(alloc, tokens);
+            try expect(.r_paren, tokens);
 
-            return ret;
+            return inner_exp;
         },
         else => return error.ExpectExpr,
     }
@@ -68,28 +73,32 @@ fn parse_stmt(
     const expr = try parse_expr(alloc, tokens);
     try expect(.semicolon, tokens);
 
-    const ret = try alloc.create(ast.Stmt);
-    ret.* = .{ .@"return" = expr };
+    return try create(ast.Stmt, alloc, .{ .@"return" = expr });
+}
 
+fn create(T: type, alloc: std.mem.Allocator, value: T) !*T {
+    const ret = try alloc.create(T);
+    ret.* = value;
     return ret;
 }
 
-fn expect(
-    expected: lexer.Token.Tag,
+inline fn expect(
+    comptime expected: lexer.Token.Tag,
     tokens: *lexer.Tokenizer,
-) !void {
+) !ExpectResult(expected) {
     if (tokens.next()) |actual| {
         if (actual.tag != expected)
             return error.SyntaxError;
+        switch (expected) {
+            .identifier => return tokens.buffer[actual.loc.start..actual.loc.end],
+            else => {},
+        }
     } else return error.SyntaxError;
 }
 
-fn expect_ident(
-    tokens: *lexer.Tokenizer,
-) ![]const u8 {
-    if (tokens.next()) |actual| {
-        if (actual.tag != .identifier)
-            return error.SyntaxError;
-        return tokens.buffer[actual.loc.start..actual.loc.end];
-    } else return error.SyntaxError;
+fn ExpectResult(comptime expected: lexer.Token.Tag) type {
+    switch (expected) {
+        .identifier => return []const u8,
+        else => return void,
+    }
 }

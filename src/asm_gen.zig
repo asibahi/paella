@@ -57,5 +57,6 @@ fn expr_to_asm(
 ) !assembly.Operand {
     switch (expr) {
         .constant => |i| return .{ .imm = i },
+        else => @panic("unimplemented"),
     }
 }
