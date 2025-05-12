@@ -25,42 +25,51 @@ pub const Token = struct {
         l_brace,
         r_brace,
         semicolon,
-        number_literal,
+
+        tilde,
+        hyphen,
+
         type_int,
+
         keyword_void,
         keyword_return,
+
+        number_literal,
 
         identifier, // useful for state for now
         invalid,
 
-        pub fn lexeme(tag: Tag) ?[]const u8 {
-            return switch (tag) {
-                .invalid,
-                .number_literal,
-                .identifier,
-                => null,
+        // pub fn lexeme(tag: Tag) ?[]const u8 {
+        //     return switch (tag) {
+        //         .invalid,
+        //         .number_literal,
+        //         .identifier,
+        //         => null,
 
-                .l_paren => "(",
-                .r_paren => ")",
-                .l_brace => "{",
-                .r_brace => "}",
+        //         .l_paren => "(",
+        //         .r_paren => ")",
+        //         .l_brace => "{",
+        //         .r_brace => "}",
 
-                .semicolon => ";",
+        //         .semicolon => ";",
 
-                .type_int => "int",
-                .keyword_void => "void",
-                .keyword_return => "return",
-            };
-        }
+        //         .tilde => "~",
+        //         .hyphen => "-",
 
-        pub fn symbol(tag: Tag) []const u8 {
-            return tag.lexeme() orelse switch (tag) {
-                .invalid => "invalid token",
-                .identifier => "an identifier",
-                .number_literal => "a number literal",
-                else => unreachable,
-            };
-        }
+        //         .type_int => "int",
+        //         .keyword_void => "void",
+        //         .keyword_return => "return",
+        //     };
+        // }
+
+        // pub fn symbol(tag: Tag) []const u8 {
+        //     return tag.lexeme() orelse switch (tag) {
+        //         .invalid => "invalid token",
+        //         .identifier => "an identifier",
+        //         .number_literal => "a number literal",
+        //         else => unreachable,
+        //     };
+        // }
     };
 };
 
@@ -80,6 +89,7 @@ pub const Tokenizer = struct {
     const State = enum {
         start,
         identifier,
+        hyphen,
         int,
     };
 
@@ -108,6 +118,11 @@ pub const Tokenizer = struct {
                 'a'...'z', 'A'...'Z', '_' => {
                     result.tag = .identifier;
                     continue :state .identifier;
+                },
+                '-' => continue :state .hyphen,
+                '~' => {
+                    result.tag = .tilde;
+                    self.index += 1;
                 },
                 '(' => {
                     result.tag = .l_paren;
@@ -157,6 +172,14 @@ pub const Tokenizer = struct {
                 },
                 'a'...'z', 'A'...'Z' => result.tag = .invalid,
                 else => {},
+            },
+
+            .hyphen => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    '-' => result.tag = .invalid,
+                    else => result.tag = .hyphen,
+                }
             },
         }
 
