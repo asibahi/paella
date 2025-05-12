@@ -2,13 +2,14 @@ const std = @import("std");
 
 const lexer = @import("lexer.zig");
 const parser = @import("parser.zig");
-const asm_gen = @import("asm_gen.zig");
+const ir = @import("ir_gen.zig");
+// const asm_gen = @import("asm_gen.zig");
 
 pub fn main() !void {
     var debug_allocator = std.heap.DebugAllocator(.{
         .stack_trace_frames = 16,
     }).init;
-    defer _ = debug_allocator.deinit();
+    // defer _ = debug_allocator.deinit();
 
     const gpa = debug_allocator.allocator();
 
@@ -70,7 +71,7 @@ pub fn run(
             return;
         }
 
-        var prgm = arena: {
+        const prgm = arena: {
             var arena_allocator = std.heap.ArenaAllocator.init(gpa);
             const arena = arena_allocator.allocator();
             defer arena_allocator.deinit();
@@ -82,38 +83,48 @@ pub fn run(
                 return;
             }
 
-            break :arena try asm_gen.prgm_to_asm(gpa, ast.*);
+            break :arena try ir.prgm_emit_it(gpa, ast);
         };
-        defer prgm.deinit(gpa);
+        // defer prgm.deinit(gpa);
 
-        if (args.mode == .codegen) {
-            std.debug.print("{}\n", .{prgm});
+        if (args.mode == .tacky) {
+            try std.json.stringify(
+                prgm,
+                .{ .whitespace = .indent_2 },
+                std.io.getStdErr().writer(),
+            );
+
             return;
         }
 
-        { // create assembly file
-            const asm_file = try std.fs.cwd().createFile(asm_out, .{});
-            defer asm_file.close();
-            var asm_writer = asm_file.writer();
+        // if (args.mode == .codegen) {
+        //     std.debug.print("{}\n", .{prgm});
+        //     return;
+        // }
 
-            try asm_writer.print("{gen}\n", .{prgm});
+        // { // create assembly file
+        //     const asm_file = try std.fs.cwd().createFile(asm_out, .{});
+        //     defer asm_file.close();
+        //     var asm_writer = asm_file.writer();
 
-            if (args.mode == .assembly) return;
-        }
+        //     try asm_writer.print("{gen}\n", .{prgm});
+
+        //     if (args.mode == .assembly) return;
+        // }
     }
 
-    { // assembler
-        var child = std.process.Child.init(
-            &.{ "gcc", asm_out, "-o", exe },
-            gpa,
-        );
+    // { // assembler
+    //     var child = std.process.Child.init(
+    //         &.{ "gcc", asm_out, "-o", exe },
+    //         gpa,
+    //     );
 
-        const term = try child.spawnAndWait();
-        if (!std.meta.eql(term, .{ .Exited = 0 }))
-            return error.AssemblerFail;
+    //     const term = try child.spawnAndWait();
+    //     if (!std.meta.eql(term, .{ .Exited = 0 }))
+    //         return error.AssemblerFail;
 
-        try std.fs.cwd().deleteFile(asm_out); // cleanup
-    }
+    //     try std.fs.cwd().deleteFile(asm_out); // cleanup
+    // }
 }
 
 pub const Args = struct {
@@ -123,6 +134,7 @@ pub const Args = struct {
 pub const Mode = enum {
     lex,
     parse,
+    tacky,
     codegen,
     compile, // default
     assembly, // unused by test script - useful for debugging
