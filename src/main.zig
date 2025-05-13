@@ -1,4 +1,5 @@
 const std = @import("std");
+const utils = @import("utils.zig");
 
 const lexer = @import("lexer.zig");
 const parser = @import("parser.zig");
@@ -9,7 +10,7 @@ pub fn main() !void {
     var debug_allocator = std.heap.DebugAllocator(.{
         .stack_trace_frames = 16,
     }).init;
-    // defer _ = debug_allocator.deinit();
+    defer _ = debug_allocator.deinit();
 
     const gpa = debug_allocator.allocator();
 
@@ -71,7 +72,10 @@ pub fn run(
             return;
         }
 
-        const prgm = arena: {
+        var strings = utils.StringInterner.empty;
+        defer strings.deinit(gpa);
+
+        var prgm_ir = arena: {
             var arena_allocator = std.heap.ArenaAllocator.init(gpa);
             const arena = arena_allocator.allocator();
             defer arena_allocator.deinit();
@@ -83,17 +87,12 @@ pub fn run(
                 return;
             }
 
-            break :arena try ir.prgm_emit_it(gpa, ast);
+            break :arena try ir.prgm_emit_it(gpa, &strings, ast);
         };
-        // defer prgm.deinit(gpa);
+        defer prgm_ir.deinit(gpa);
 
         if (args.mode == .tacky) {
-            try std.json.stringify(
-                prgm,
-                .{ .whitespace = .indent_2 },
-                std.io.getStdErr().writer(),
-            );
-
+            std.debug.print("{any}\n", .{prgm_ir});
             return;
         }
 

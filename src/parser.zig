@@ -2,6 +2,8 @@ const std = @import("std");
 const ast = @import("ast.zig");
 const lexer = @import("lexer.zig");
 
+const create = @import("utils.zig").create;
+
 pub fn parse_prgm(
     alloc: std.mem.Allocator,
     tokens: *lexer.Tokenizer,
@@ -74,12 +76,6 @@ fn parse_stmt(
     try expect(.semicolon, tokens);
 
     return try create(ast.Stmt, alloc, .{ .@"return" = expr });
-}
-
-fn create(T: type, alloc: std.mem.Allocator, value: T) !*T {
-    const ret = try alloc.create(T);
-    ret.* = value;
-    return ret;
 }
 
 inline fn expect(
