@@ -4,7 +4,7 @@ const utils = @import("utils.zig");
 const lexer = @import("lexer.zig");
 const parser = @import("parser.zig");
 const ir = @import("ir_gen.zig");
-// const asm_gen = @import("asm_gen.zig");
+const asm_gen = @import("asm_gen.zig");
 
 pub fn main() !void {
     var debug_allocator = std.heap.DebugAllocator(.{
@@ -75,7 +75,7 @@ pub fn run(
         var strings = utils.StringInterner.empty;
         defer strings.deinit(gpa);
 
-        var prgm_ir = arena: {
+        var prgm_ir = parse: {
             var arena_allocator = std.heap.ArenaAllocator.init(gpa);
             const arena = arena_allocator.allocator();
             defer arena_allocator.deinit();
@@ -87,19 +87,26 @@ pub fn run(
                 return;
             }
 
-            break :arena try ir.prgm_emit_it(gpa, &strings, ast);
+            break :parse try ir.prgm_emit_it(gpa, &strings, ast);
         };
-        defer prgm_ir.deinit(gpa);
 
-        if (args.mode == .tacky) {
-            std.debug.print("{any}\n", .{prgm_ir});
+        var prgm_asm = asm_gen: {
+            defer prgm_ir.deinit(gpa);
+
+            if (args.mode == .tacky) {
+                std.debug.print("{any}\n", .{prgm_ir});
+                return;
+            }
+
+            break :asm_gen try asm_gen.prgm_to_asm(gpa, prgm_ir);
+        };
+        defer prgm_asm.deinit(gpa);
+        try prgm_asm.fixup(gpa, &strings);
+
+        if (args.mode == .codegen) {
+            std.debug.print("{}\n", .{prgm_asm});
             return;
         }
-
-        // if (args.mode == .codegen) {
-        //     std.debug.print("{}\n", .{prgm});
-        //     return;
-        // }
 
         // { // create assembly file
         //     const asm_file = try std.fs.cwd().createFile(asm_out, .{});

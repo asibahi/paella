@@ -1,62 +1,89 @@
 const std = @import("std");
 
-const ast = @import("ast.zig");
+const ir = @import("ir.zig");
 const assembly = @import("assembly.zig");
+
+const utils = @import("utils.zig");
 
 pub fn prgm_to_asm(
     alloc: std.mem.Allocator,
-    prgm: ast.Prgm,
+    prgm: ir.Prgm,
 ) !assembly.Prgm {
-    const func_def = try alloc.create(assembly.FuncDef);
-    errdefer alloc.destroy(func_def);
-
-    func_def.* = try func_def_to_asm(alloc, prgm.func_def.*);
+    const func_def = try utils.create(
+        assembly.FuncDef,
+        alloc,
+        try func_def_to_asm(alloc, prgm.func_def.*),
+    );
 
     return .{ .func_def = func_def };
 }
 
 fn func_def_to_asm(
     alloc: std.mem.Allocator,
-    func_def: ast.FuncDef,
+    func_def: ir.FuncDef,
 ) !assembly.FuncDef {
-    const name = try alloc.dupe(u8, func_def.name);
-    errdefer alloc.free(name);
+    var arena_allocator = std.heap.ArenaAllocator.init(alloc);
+    defer arena_allocator.deinit();
+    const arena = arena_allocator.allocator();
 
-    const instrs = try stmt_to_asm(alloc, func_def.body.*);
+    var instrs = std.ArrayListUnmanaged(assembly.Instr).empty;
+
+    for (func_def.instrs.items) |instr| {
+        // note the different allocators for each function.
+        const ret = try instr_to_asm(arena, instr);
+        try instrs.appendSlice(alloc, ret);
+    }
 
     return .{
-        .name = name,
+        .name = func_def.name,
         .instrs = instrs,
     };
 }
 
-fn stmt_to_asm(
+fn instr_to_asm(
     alloc: std.mem.Allocator,
-    stmt: ast.Stmt,
-) !std.ArrayListUnmanaged(assembly.Inst) {
-    switch (stmt) {
-        .@"return" => |value| {
-            var result: std.ArrayListUnmanaged(assembly.Inst) = .empty;
-            try result.appendSlice(alloc, &.{
-                .{ .mov = .init(
-                    try expr_to_asm(alloc, value.*),
-                    .reg,
-                ) },
-
+    instr: ir.Instr,
+) ![]assembly.Instr {
+    switch (instr) {
+        .ret => |v| {
+            const src = value_to_asm(v);
+            const ret = try alloc.dupe(assembly.Instr, &.{
+                .{ .mov = .init(src, .{ .reg = .AX }) },
                 .ret,
             });
 
-            return result;
+            return ret;
+        },
+        .unop_complement => |u| {
+            const src = value_to_asm(u.src);
+            const dst = value_to_asm(u.dst);
+
+            const ret = try alloc.dupe(assembly.Instr, &.{
+                .{ .mov = .init(src, dst) },
+                .{ .not = dst },
+            });
+
+            return ret;
+        },
+        .unop_negate => |u| {
+            const src = value_to_asm(u.src);
+            const dst = value_to_asm(u.dst);
+
+            const ret = try alloc.dupe(assembly.Instr, &.{
+                .{ .mov = .init(src, dst) },
+                .{ .neg = dst },
+            });
+
+            return ret;
         },
     }
 }
 
-fn expr_to_asm(
-    _: std.mem.Allocator,
-    expr: ast.Expr,
-) !assembly.Operand {
-    switch (expr) {
-        .constant => |i| return .{ .imm = i },
-        else => @panic("unimplemented"),
+fn value_to_asm(
+    value: ir.Value,
+) assembly.Operand {
+    switch (value) {
+        .constant => |c| return .{ .imm = c },
+        .variable => |v| return .{ .pseudo = v },
     }
 }

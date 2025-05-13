@@ -1,7 +1,25 @@
 const std = @import("std");
 
+const utils = @import("utils.zig");
+
+const pass_pseudo = @import("asm_passes/pseudos.zig");
+const pass_fixup = @import("asm_passes/fixup.zig");
+
 pub const Prgm = struct {
     func_def: *FuncDef,
+
+    pub fn fixup(
+        self: *@This(),
+        alloc: std.mem.Allocator,
+        strings: *utils.StringInterner,
+    ) !void {
+        // this code here should reasonably live in FuncDef
+        const depth = try pass_pseudo.replace_pseudos(alloc, strings, self);
+        try self.func_def.instrs.insert(alloc, 0, .{
+            .allocate_stack = @abs(depth),
+        });
+        try pass_fixup.fixup_instrs(alloc, self);
+    }
 
     pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
         self.func_def.deinit(alloc);
@@ -28,10 +46,9 @@ pub const Prgm = struct {
 
 pub const FuncDef = struct {
     name: []const u8,
-    instrs: std.ArrayListUnmanaged(Inst),
+    instrs: std.ArrayListUnmanaged(Instr),
 
     pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
-        alloc.free(self.name);
         self.instrs.deinit(alloc);
     }
 
@@ -59,9 +76,16 @@ pub const FuncDef = struct {
     }
 };
 
-pub const Inst = union(enum) {
+pub const Instr = union(enum) {
     mov: Mov,
     ret: void,
+
+    // unary operations
+    neg: Operand,
+    not: Operand,
+
+    // weird and useless type magic happens here. just write u64
+    allocate_stack: std.meta.Int(.unsigned, @bitSizeOf(Operand.StackDepth)),
 
     const Mov = struct {
         src: Operand,
@@ -85,6 +109,7 @@ pub const Inst = union(enum) {
                     "\tmovl    {[src]gen}, {[dst]gen}",
                     mov,
                 ),
+                else => @panic("unimplemented"),
             }
         } else {
             const w = options.width orelse 0;
@@ -92,7 +117,10 @@ pub const Inst = union(enum) {
 
             switch (self) {
                 .ret => try writer.writeAll("ret"),
-                .mov => |mov| try writer.print("mov {[src]}, {[dst]}", mov),
+                .mov => |mov| try writer.print("mov\t{[src]} -> {[dst]}", mov),
+                .neg => |o| try writer.print("neg\t{}", .{o}),
+                .not => |o| try writer.print("not\t{}", .{o}),
+                .allocate_stack => |d| try writer.print("allocate\t{d}", .{d}),
             }
         }
     }
@@ -100,7 +128,12 @@ pub const Inst = union(enum) {
 
 pub const Operand = union(enum) {
     imm: u64,
-    reg: void,
+    reg: Register,
+    pseudo: [:0]const u8,
+    stack: StackDepth,
+
+    pub const Register = enum { AX, R10 };
+    pub const StackDepth = i64;
 
     pub fn format(
         self: @This(),
@@ -111,7 +144,7 @@ pub const Operand = union(enum) {
         if (std.mem.eql(u8, fmt, "gen")) {
             switch (self) {
                 .imm => |i| try writer.print("${d}", .{i}),
-                .reg => try writer.writeAll("%eax"),
+                else => @panic("unimplemented"),
             }
         } else {
             const w = options.width orelse 0;
@@ -119,7 +152,9 @@ pub const Operand = union(enum) {
 
             switch (self) {
                 .imm => |i| try writer.print("imm {d}", .{i}),
-                .reg => try writer.writeAll("register"),
+                .reg => |r| try writer.print("{s}", .{@tagName(r)}),
+                .pseudo => |s| try writer.print("pseudo {s}", .{s}),
+                .stack => |d| try writer.print("stack {d}", .{d}),
             }
         }
     }
