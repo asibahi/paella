@@ -18,19 +18,28 @@ pub fn fixup_instrs(
         out.deinit(alloc);
     }
 
+    const State = enum {
+        start,
+        mov_stack_stack,
+        legal,
+    };
+
     for (prgm.func_def.instrs.items) |instr| {
-        switch (instr) {
-            .mov => |m| switch (m.src) {
-                .stack => switch (m.dst) {
-                    .stack => try out.appendSlice(alloc, &.{
-                        .{ .mov = .init(m.src, .{ .reg = .R10 }) },
-                        .{ .mov = .init(.{ .reg = .R10 }, m.dst) },
-                    }),
-                    else => try out.append(alloc, instr),
-                },
-                else => try out.append(alloc, instr),
+        state: switch (State.start) {
+            .start => switch (instr) {
+                .mov => |m| if (m.src == .stack and m.dst == .stack)
+                    continue :state .mov_stack_stack
+                else
+                    continue :state .legal,
+                else => continue :state .legal,
             },
-            else => try out.append(alloc, instr),
+
+            .mov_stack_stack => try out.appendSlice(alloc, &.{
+                .{ .mov = .init(instr.mov.src, .{ .reg = .R10 }) },
+                .{ .mov = .init(.{ .reg = .R10 }, instr.mov.dst) },
+            }),
+
+            .legal => try out.append(alloc, instr),
         }
     }
 }
