@@ -11,10 +11,9 @@ pub const Prgm = struct {
     pub fn fixup(
         self: *@This(),
         alloc: std.mem.Allocator,
-        strings: *utils.StringInterner,
     ) !void {
         // this code here should reasonably live in FuncDef
-        const depth = try pass_pseudo.replace_pseudos(alloc, strings, self);
+        const depth = try pass_pseudo.replace_pseudos(alloc, self);
         try self.func_def.instrs.insert(alloc, 0, .{
             .allocate_stack = @abs(depth),
         });
@@ -59,7 +58,13 @@ pub const FuncDef = struct {
         writer: anytype,
     ) !void {
         if (std.mem.eql(u8, fmt, "gen")) {
-            try writer.print("\t.globl _{0s}\n_{0s}:\n", .{self.name});
+            try writer.print(
+                "\t.globl _{0s}\n" ++
+                    "_{0s}:\n" ++
+                    "\tpushq   %rbp\n" ++
+                    "\tmovq    %rsp, %rbp\n",
+                .{self.name},
+            );
             for (self.instrs.items) |instr|
                 try writer.print("{gen}\n", .{instr});
         } else {
@@ -104,12 +109,21 @@ pub const Instr = union(enum) {
     ) !void {
         if (std.mem.eql(u8, fmt, "gen")) {
             switch (self) {
-                .ret => try writer.writeAll("\tret"),
                 .mov => |mov| try writer.print(
                     "\tmovl    {[src]gen}, {[dst]gen}",
                     mov,
                 ),
-                else => @panic("unimplemented"),
+                .ret => {
+                    try writer.writeAll(
+                        "\tmovq    %rbp, %rsp\n" ++
+                            "\tpopq    %rbp\n" ++
+                            "\tret",
+                    );
+                },
+                .neg => |o| try writer.print("\tnegl    {gen}", .{o}),
+                .not => |o| try writer.print("\tnotl    {gen}", .{o}),
+                .allocate_stack => |d| try writer.print("\tsubq    ${d}, %rsp", .{d}),
+                // else => @panic("unimplemented"),
             }
         } else {
             const w = options.width orelse 0;
@@ -144,6 +158,11 @@ pub const Operand = union(enum) {
         if (std.mem.eql(u8, fmt, "gen")) {
             switch (self) {
                 .imm => |i| try writer.print("${d}", .{i}),
+                .reg => |r| switch (r) {
+                    .AX => try writer.print("%eax", .{}),
+                    .R10 => try writer.print("%r10d", .{}),
+                },
+                .stack => |d| try writer.print("{d}(%rsp)", .{d}),
                 else => @panic("unimplemented"),
             }
         } else {

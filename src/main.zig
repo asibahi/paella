@@ -101,36 +101,36 @@ pub fn run(
             break :asm_gen try asm_gen.prgm_to_asm(gpa, prgm_ir);
         };
         defer prgm_asm.deinit(gpa);
-        try prgm_asm.fixup(gpa, &strings);
+        try prgm_asm.fixup(gpa);
 
         if (args.mode == .codegen) {
             std.debug.print("{}\n", .{prgm_asm});
             return;
         }
 
-        // { // create assembly file
-        //     const asm_file = try std.fs.cwd().createFile(asm_out, .{});
-        //     defer asm_file.close();
-        //     var asm_writer = asm_file.writer();
+        { // create assembly file
+            const asm_file = try std.fs.cwd().createFile(asm_out, .{});
+            defer asm_file.close();
+            var asm_writer = asm_file.writer();
 
-        //     try asm_writer.print("{gen}\n", .{prgm});
+            try asm_writer.print("{gen}\n", .{prgm_asm});
 
-        //     if (args.mode == .assembly) return;
-        // }
+            if (args.mode == .assembly) return;
+        }
     }
 
-    // { // assembler
-    //     var child = std.process.Child.init(
-    //         &.{ "gcc", asm_out, "-o", exe },
-    //         gpa,
-    //     );
+    { // assembler
+        var child = std.process.Child.init(
+            &.{ "gcc", asm_out, "-o", exe },
+            gpa,
+        );
 
-    //     const term = try child.spawnAndWait();
-    //     if (!std.meta.eql(term, .{ .Exited = 0 }))
-    //         return error.AssemblerFail;
+        const term = try child.spawnAndWait();
+        if (!std.meta.eql(term, .{ .Exited = 0 }))
+            return error.AssemblerFail;
 
-    //     try std.fs.cwd().deleteFile(asm_out); // cleanup
-    // }
+        try std.fs.cwd().deleteFile(asm_out); // cleanup
+    }
 }
 
 pub const Args = struct {
