@@ -58,13 +58,13 @@ pub const FuncDef = struct {
         writer: anytype,
     ) !void {
         if (std.mem.eql(u8, fmt, "gen")) {
-            try writer.print(
-                "\t.globl _{0s}\n" ++
-                    "_{0s}:\n" ++
-                    "\tpushq   %rbp\n" ++
-                    "\tmovq    %rsp, %rbp\n",
-                .{self.name},
-            );
+            try writer.print(indent(
+                \\.globl _{0s}
+                \\_{0s}:
+                \\pushq   %rbp
+                \\movq    %rsp, %rbp
+                \\
+            ), .{self.name});
             for (self.instrs.items) |instr|
                 try writer.print("{gen}\n", .{instr});
         } else {
@@ -102,7 +102,6 @@ pub const Instr = union(enum) {
     };
     pub const Depth = std.meta.Int(.unsigned, @bitSizeOf(Operand.Offset));
 
-
     pub fn format(
         self: @This(),
         comptime fmt: []const u8,
@@ -111,17 +110,14 @@ pub const Instr = union(enum) {
     ) !void {
         if (std.mem.eql(u8, fmt, "gen")) {
             switch (self) {
-                .mov => |mov| try writer.print(
-                    "\tmovl    {[src]gen}, {[dst]gen}",
-                    mov,
-                ),
-                .ret => {
-                    try writer.writeAll(
-                        "\tmovq    %rbp, %rsp\n" ++
-                            "\tpopq    %rbp\n" ++
-                            "\tret",
-                    );
-                },
+                .mov => |mov| try writer.print(indent(
+                    \\movl    {[src]gen}, {[dst]gen}
+                ), mov),
+                .ret => try writer.writeAll(indent(
+                    \\movq    %rbp, %rsp
+                    \\popq    %rbp
+                    \\ret
+                )),
                 .neg => |o| try writer.print("\tnegl    {gen}", .{o}),
                 .not => |o| try writer.print("\tnotl    {gen}", .{o}),
                 .allocate_stack => |d| try writer.print("\tsubq    ${d}, %rsp", .{d}),
@@ -180,3 +176,20 @@ pub const Operand = union(enum) {
         }
     }
 };
+
+inline fn indent(
+    comptime text: []const u8,
+) []const u8 {
+    comptime {
+        var iter = std.mem.splitScalar(u8, text, '\n');
+        var res: []const u8 = "";
+
+        while (iter.next()) |line|
+            res = if (line.len > 0 and line[0] != '_')
+                res ++ "\t" ++ line ++ "\n"
+            else
+                res ++ line ++ "\n";
+
+        return res[0 .. res.len - 1];
+    }
+}
