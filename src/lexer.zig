@@ -38,49 +38,12 @@ pub const Token = struct {
 
         identifier, // useful for state for now
         invalid,
-
-        // pub fn lexeme(tag: Tag) ?[]const u8 {
-        //     return switch (tag) {
-        //         .invalid,
-        //         .number_literal,
-        //         .identifier,
-        //         => null,
-
-        //         .l_paren => "(",
-        //         .r_paren => ")",
-        //         .l_brace => "{",
-        //         .r_brace => "}",
-
-        //         .semicolon => ";",
-
-        //         .tilde => "~",
-        //         .hyphen => "-",
-
-        //         .type_int => "int",
-        //         .keyword_void => "void",
-        //         .keyword_return => "return",
-        //     };
-        // }
-
-        // pub fn symbol(tag: Tag) []const u8 {
-        //     return tag.lexeme() orelse switch (tag) {
-        //         .invalid => "invalid token",
-        //         .identifier => "an identifier",
-        //         .number_literal => "a number literal",
-        //         else => unreachable,
-        //     };
-        // }
     };
 };
 
 pub const Tokenizer = struct {
     buffer: [:0]const u8,
     index: usize = 0,
-
-    /// For debugging purposes.
-    pub fn dump(self: *Tokenizer, token: *const Token) void {
-        std.debug.print("{s} \"{s}\"\n", .{ @tagName(token.tag), self.buffer[token.loc.start..token.loc.end] });
-    }
 
     pub fn init(buffer: [:0]const u8) Tokenizer {
         return .{ .buffer = buffer };
@@ -103,12 +66,10 @@ pub const Tokenizer = struct {
         };
         state: switch (State.start) {
             .start => switch (self.buffer[self.index]) {
-                0 => {
-                    if (self.index == self.buffer.len) {
-                        return null;
-                    } else {
-                        result.tag = .invalid;
-                    }
+                0 => if (self.index == self.buffer.len) {
+                    return null;
+                } else {
+                    result.tag = .invalid;
                 },
                 ' ', '\n', '\t', '\r' => {
                     self.index += 1;

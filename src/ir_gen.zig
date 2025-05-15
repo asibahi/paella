@@ -27,12 +27,12 @@ fn func_def_emit_ir(
     const name = try interner.get_or_put(alloc, func_def.name);
 
     var instrs: std.ArrayListUnmanaged(ir.Instr) = .empty;
-    try stmy_emit_ir(alloc, interner, func_def.body, &instrs);
+    try stmt_emit_ir(alloc, interner, func_def.body, &instrs);
 
     return .{ .name = name.string, .instrs = instrs };
 }
 
-fn stmy_emit_ir(
+fn stmt_emit_ir(
     alloc: std.mem.Allocator,
     interner: *utils.StringInterner,
     stmt: *ast.Stmt,
@@ -94,7 +94,7 @@ fn make_temporary(
 
     const name_alloc = std.fmt.allocPrint(
         alloc,
-        if (prefix.len == 0) "tmp" else prefix ++ ".{}",
+        (if (prefix.len == 0) "tmp" else prefix) ++ ".{}",
         .{static.counter},
     ) catch return error.MakeTemporary;
     defer alloc.free(name_alloc);

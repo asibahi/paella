@@ -31,9 +31,9 @@ pub const Prgm = struct {
         options: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        if (std.mem.eql(u8, fmt, "gen")) {
-            try writer.print("{gen}", .{self.func_def});
-        } else {
+        if (std.mem.eql(u8, fmt, "gen"))
+            try writer.print("{gen}", .{self.func_def})
+        else {
             try writer.print("PRORGAM\n", .{});
             try writer.print("{:[1]}", .{
                 self.func_def,
@@ -90,7 +90,7 @@ pub const Instr = union(enum) {
     not: Operand,
 
     // weird and useless type magic happens here. just write u64
-    allocate_stack: std.meta.Int(.unsigned, @bitSizeOf(Operand.StackDepth)),
+    allocate_stack: Depth,
 
     const Mov = struct {
         src: Operand,
@@ -100,6 +100,8 @@ pub const Instr = union(enum) {
             return .{ .src = src, .dst = dst };
         }
     };
+    pub const Depth = std.meta.Int(.unsigned, @bitSizeOf(Operand.Offset));
+
 
     pub fn format(
         self: @This(),
@@ -144,10 +146,10 @@ pub const Operand = union(enum) {
     imm: u64,
     reg: Register,
     pseudo: [:0]const u8,
-    stack: StackDepth,
+    stack: Offset,
 
     pub const Register = enum { AX, R10 };
-    pub const StackDepth = i64;
+    pub const Offset = i64;
 
     pub fn format(
         self: @This(),

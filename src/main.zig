@@ -1,4 +1,5 @@
 const std = @import("std");
+const bi = @import("builtin");
 const utils = @import("utils.zig");
 
 const lexer = @import("lexer.zig");
@@ -58,7 +59,7 @@ pub fn run(
 
         if (args.mode == .lex) {
             while (tokenizer.next()) |token| {
-                if (@import("builtin").mode == .Debug)
+                if (bi.mode == .Debug)
                     std.debug.print("{s:<16}: {s}\n", .{
                         @tagName(token.tag),
                         src[token.loc.start..token.loc.end],
@@ -83,7 +84,8 @@ pub fn run(
             const ast = try parser.parse_prgm(arena, &tokenizer);
 
             if (args.mode == .parse) {
-                std.debug.print("{}\n", .{ast});
+                if (bi.mode == .Debug)
+                    std.debug.print("{}\n", .{ast});
                 return;
             }
 
@@ -94,7 +96,8 @@ pub fn run(
             defer prgm_ir.deinit(gpa);
 
             if (args.mode == .tacky) {
-                std.debug.print("{any}\n", .{prgm_ir});
+                if (bi.mode == .Debug)
+                    std.debug.print("{any}\n", .{prgm_ir});
                 return;
             }
 
@@ -104,18 +107,22 @@ pub fn run(
         try prgm_asm.fixup(gpa);
 
         if (args.mode == .codegen) {
-            std.debug.print("{}\n", .{prgm_asm});
+            if (bi.mode == .Debug)
+                std.debug.print("{}\n", .{prgm_asm});
             return;
         }
 
         { // create assembly file
-            const asm_file = try std.fs.cwd().createFile(asm_out, .{});
-            defer asm_file.close();
-            var asm_writer = asm_file.writer();
+            if (args.mode == .assembly) {
+                std.debug.print("{gen}\n", .{prgm_asm});
+                return;
+            } else {
+                const asm_file = try std.fs.cwd().createFile(asm_out, .{});
+                defer asm_file.close();
+                var asm_writer = asm_file.writer();
 
-            try asm_writer.print("{gen}\n", .{prgm_asm});
-
-            if (args.mode == .assembly) return;
+                try asm_writer.print("{gen}\n", .{prgm_asm});
+            }
         }
     }
 
@@ -154,14 +161,13 @@ pub fn parse_args() !Args {
     var mode: Mode = .compile;
 
     while (args.next()) |arg| {
-        if (arg[0] == '-') {
+        if (arg[0] == '-')
             mode = std.meta.stringToEnum(Mode, arg[2..]) orelse
-                return error.UnrecognizedFlag;
-        } else if (path == null) {
-            path = arg;
-        } else {
+                return error.UnrecognizedFlag
+        else if (path == null)
+            path = arg
+        else
             return error.PathDuplicated;
-        }
     }
 
     return .{

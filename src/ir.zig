@@ -18,7 +18,6 @@ pub const Prgm = struct {
         writer: anytype,
     ) !void {
         try writer.print("PRORGAM\n", .{});
-
         try writer.print("{:[1]}", .{
             self.func_def,
             (options.width orelse 0) + 1,

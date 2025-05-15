@@ -43,14 +43,14 @@ pub const StringInterner = struct {
         self: *const StringInterner,
         string: []const u8,
     ) ?Idx {
-        return self.map.getKeyAdapted(string, self.adapter());
+        return self.map.getKeyAdapted(string, .{ .bytes = &self.bytes });
     }
 
     pub fn get_string(
         self: *const StringInterner,
         id: Idx,
     ) ?[:0]const u8 {
-        if (!self.map.containsContext(id, self.ctx()))
+        if (!self.map.containsContext(id, .{ .bytes = &self.bytes }))
             return null;
 
         const st: [:0]const u8 = @ptrCast(self.bytes.items[id..]);
@@ -63,16 +63,15 @@ pub const StringInterner = struct {
         string: []const u8,
     ) std.mem.Allocator.Error!GetOrPutResult {
         try self.bytes.ensureUnusedCapacity(allocator, string.len + 1);
-        try self.map.ensureUnusedCapacityContext(allocator, 1, self.ctx());
+        try self.map.ensureUnusedCapacityContext(allocator, 1, .{ .bytes = &self.bytes });
 
-        const gop = self.map.getOrPutAssumeCapacityAdapted(string, self.adapter());
+        const adapter: std.hash_map.StringIndexAdapter = .{ .bytes = &self.bytes };
+        const gop = self.map.getOrPutAssumeCapacityAdapted(string, adapter);
         gop.value_ptr.* = {}; // just a reminder that this is void
 
         if (gop.found_existing)
             return .init(self, gop.key_ptr.*);
 
-        if (self.bytes.items.len > std.math.maxInt(Idx))
-            return error.OutOfMemory;
         const new_id: Idx = @intCast(self.bytes.items.len);
 
         self.bytes.appendSliceAssumeCapacity(string);
@@ -80,13 +79,5 @@ pub const StringInterner = struct {
         gop.key_ptr.* = new_id;
 
         return .init(self, new_id);
-    }
-
-    fn ctx(self: *const StringInterner) std.hash_map.StringIndexContext {
-        return .{ .bytes = &self.bytes };
-    }
-
-    fn adapter(self: *const StringInterner) std.hash_map.StringIndexAdapter {
-        return .{ .bytes = &self.bytes };
     }
 };

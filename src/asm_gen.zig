@@ -47,34 +47,28 @@ fn instr_to_asm(
     switch (instr) {
         .ret => |v| {
             const src = value_to_asm(v);
-            const ret = try alloc.dupe(assembly.Instr, &.{
+            return try alloc.dupe(assembly.Instr, &.{
                 .{ .mov = .init(src, .{ .reg = .AX }) },
                 .ret,
             });
-
-            return ret;
         },
         .unop_complement => |u| {
             const src = value_to_asm(u.src);
             const dst = value_to_asm(u.dst);
 
-            const ret = try alloc.dupe(assembly.Instr, &.{
+            return try alloc.dupe(assembly.Instr, &.{
                 .{ .mov = .init(src, dst) },
                 .{ .not = dst },
             });
-
-            return ret;
         },
         .unop_negate => |u| {
             const src = value_to_asm(u.src);
             const dst = value_to_asm(u.dst);
 
-            const ret = try alloc.dupe(assembly.Instr, &.{
+            return try alloc.dupe(assembly.Instr, &.{
                 .{ .mov = .init(src, dst) },
                 .{ .neg = dst },
             });
-
-            return ret;
         },
     }
 }
