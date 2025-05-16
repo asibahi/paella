@@ -60,6 +60,13 @@ pub const Expr = union(enum) {
     constant: u64,
     unop_negate: *Expr,
     unop_complement: *Expr,
+    binop_add: BinOp,
+    binop_sub: BinOp,
+    binop_mul: BinOp,
+    binop_div: BinOp,
+    binop_rem: BinOp,
+
+    pub const BinOp = struct { *Expr, *Expr };
 
     pub fn format(
         self: @This(),
@@ -69,9 +76,14 @@ pub const Expr = union(enum) {
     ) !void {
         switch (self) {
             .constant => |c| try writer.print("{d}", .{c}),
-            // RPN
-            .unop_negate => |e| try writer.print("{} --", .{e}),
-            .unop_complement => |e| try writer.print("{} ~", .{e}),
+            // S-Expr
+            .unop_negate => |e| try writer.print("(- {})", .{e}),
+            .unop_complement => |e| try writer.print("(~ {})", .{e}),
+            .binop_add => |b| try writer.print("(+ {} {})", b),
+            .binop_sub => |b| try writer.print("(- {} {})", b),
+            .binop_mul => |b| try writer.print("(* {} {})", b),
+            .binop_div => |b| try writer.print("(/ {} {})", b),
+            .binop_rem => |b| try writer.print("(% {} {})", b),
         }
     }
 };

@@ -2,24 +2,24 @@ const std = @import("std");
 const ast = @import("ast.zig");
 const lexer = @import("lexer.zig");
 
-const create = @import("utils.zig").create;
+const utils = @import("utils.zig");
 
 pub fn parse_prgm(
     alloc: std.mem.Allocator,
     tokens: *lexer.Tokenizer,
-) !*ast.Prgm {
+) Error!*ast.Prgm {
     const func_def = try parse_func_def(alloc, tokens);
 
     // now that we are done, check the tokenizer is emoty.
     if (tokens.next()) |_| return error.ExtraJunk;
 
-    return try create(ast.Prgm, alloc, .{ .func_def = func_def });
+    return try utils.create(ast.Prgm, alloc, .{ .func_def = func_def });
 }
 
 fn parse_func_def(
     alloc: std.mem.Allocator,
     tokens: *lexer.Tokenizer,
-) !*ast.FuncDef {
+) Error!*ast.FuncDef {
     try expect(.type_int, tokens);
 
     const name = try expect(.identifier, tokens);
@@ -32,56 +32,89 @@ fn parse_func_def(
     const body = try parse_stmt(alloc, tokens);
     try expect(.r_brace, tokens);
 
-    return try create(ast.FuncDef, alloc, .{ .name = name, .body = body });
-}
-
-fn parse_expr(
-    alloc: std.mem.Allocator,
-    tokens: *lexer.Tokenizer,
-) !*ast.Expr {
-    const current = tokens.next() orelse
-        return error.ExpectExpr;
-
-    switch (current.tag) {
-        .number_literal => {
-            const lit = tokens.buffer[current.loc.start..current.loc.end];
-            const res = try std.fmt.parseInt(u64, lit, 10);
-
-            return try create(ast.Expr, alloc, .{ .constant = res });
-        },
-        .hyphen => {
-            const inner_exp = try parse_expr(alloc, tokens);
-            return try create(ast.Expr, alloc, .{ .unop_negate = inner_exp });
-        },
-        .tilde => {
-            const inner_exp = try parse_expr(alloc, tokens);
-            return try create(ast.Expr, alloc, .{ .unop_complement = inner_exp });
-        },
-        .l_paren => {
-            const inner_exp = try parse_expr(alloc, tokens);
-            try expect(.r_paren, tokens);
-
-            return inner_exp;
-        },
-        else => return error.ExpectExpr,
-    }
+    return try utils.create(ast.FuncDef, alloc, .{ .name = name, .body = body });
 }
 
 fn parse_stmt(
     alloc: std.mem.Allocator,
     tokens: *lexer.Tokenizer,
-) !*ast.Stmt {
+) Error!*ast.Stmt {
     try expect(.keyword_return, tokens);
-    const expr = try parse_expr(alloc, tokens);
+    const expr = try parse_expr(alloc, tokens, 0);
     try expect(.semicolon, tokens);
 
-    return try create(ast.Stmt, alloc, .{ .@"return" = expr });
+    return try utils.create(ast.Stmt, alloc, .{ .@"return" = expr });
+}
+
+fn parse_expr(
+    alloc: std.mem.Allocator,
+    tokens: *lexer.Tokenizer,
+    min_prec: u8,
+) Error!*ast.Expr {
+    var lhs = try parse_factor(alloc, tokens);
+
+    var next_token = tokens.next() orelse
+        return error.SyntaxError;
+
+    while (next_token.tag.binop_precedence()) |prec| {
+        if (prec < min_prec) break;
+
+        const rhs = try parse_expr(alloc, tokens, prec + 1);
+        const bin_op: ast.Expr.BinOp = .{ lhs, rhs };
+        const new_lhs: ast.Expr = switch (next_token.tag) {
+            .plus => .{ .binop_add = bin_op },
+            .hyphen => .{ .binop_sub = bin_op },
+            .asterisk => .{ .binop_mul = bin_op },
+            .f_slash => .{ .binop_div = bin_op },
+            .percent => .{ .binop_rem = bin_op },
+            else => unreachable,
+        };
+        lhs = try utils.create(ast.Expr, alloc, new_lhs);
+        next_token = tokens.next() orelse
+            return error.SyntaxError;
+    }
+
+    tokens.put_back(next_token);
+    return lhs;
+}
+
+fn parse_factor(
+    alloc: std.mem.Allocator,
+    tokens: *lexer.Tokenizer,
+) Error!*ast.Expr {
+    const current = tokens.next() orelse
+        return error.SyntaxError;
+
+    switch (current.tag) {
+        .number_literal => {
+            const lit = tokens.buffer[current.loc.start..current.loc.end];
+            const res = std.fmt.parseInt(u64, lit, 10) catch
+                return error.InvalidInt;
+
+            return try utils.create(ast.Expr, alloc, .{ .constant = res });
+        },
+        .hyphen => {
+            const inner_exp = try parse_factor(alloc, tokens);
+            return try utils.create(ast.Expr, alloc, .{ .unop_negate = inner_exp });
+        },
+        .tilde => {
+            const inner_exp = try parse_factor(alloc, tokens);
+            return try utils.create(ast.Expr, alloc, .{ .unop_complement = inner_exp });
+        },
+        .l_paren => {
+            const inner_exp = try parse_expr(alloc, tokens, 0);
+            try expect(.r_paren, tokens);
+
+            return inner_exp;
+        },
+        else => return error.SyntaxError,
+    }
 }
 
 inline fn expect(
     comptime expected: lexer.Token.Tag,
     tokens: *lexer.Tokenizer,
-) !ExpectResult(expected) {
+) Error!ExpectResult(expected) {
     if (tokens.next()) |actual| {
         if (actual.tag != expected)
             return error.SyntaxError;
@@ -98,3 +131,11 @@ fn ExpectResult(comptime expected: lexer.Token.Tag) type {
         else => return void,
     }
 }
+
+const Error =
+    std.mem.Allocator.Error ||
+    error{
+        SyntaxError,
+        InvalidInt,
+        ExtraJunk,
+    };

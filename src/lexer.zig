@@ -42,6 +42,19 @@ pub const Token = struct {
 
         identifier, // useful for state for now
         invalid,
+
+        pub fn binop_precedence(self: @This()) ?u8 {
+            return switch (self) {
+                .asterisk, // *
+                .f_slash, // /
+                .percent, // %
+                => 50,
+                .hyphen, // -
+                .plus, // +
+                => 45,
+                else => null,
+            };
+        }
     };
 };
 
@@ -59,6 +72,10 @@ pub const Tokenizer = struct {
         hyphen,
         int,
     };
+
+    pub inline fn put_back(self: *Tokenizer, token: Token) void {
+        self.index = token.loc.start;
+    }
 
     pub fn next(self: *Tokenizer) ?Token {
         var result: Token = .{

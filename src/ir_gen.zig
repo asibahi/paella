@@ -63,6 +63,7 @@ fn expr_emit_ir(
             try instrs.append(alloc, .{ .unop_complement = unary });
             return unary.dst;
         },
+        else => @panic("todo"),
     }
 }
 
