@@ -20,14 +20,18 @@ pub const Token = struct {
     }
 
     pub const Tag = enum {
-        l_paren,
-        r_paren,
-        l_brace,
-        r_brace,
-        semicolon,
+        l_paren, // (
+        r_paren, // )
+        l_brace, // {
+        r_brace, // }
+        semicolon, // ;
 
-        tilde,
-        hyphen,
+        tilde, // ~
+        hyphen, // -
+        plus, // +
+        asterisk, // *
+        f_slash, // /
+        percent, // %
 
         type_int,
 
@@ -80,21 +84,18 @@ pub const Tokenizer = struct {
                     result.tag = .identifier;
                     continue :state .identifier;
                 },
-                '-' => continue :state .hyphen,
-                '~' => {
-                    result.tag = .tilde;
+                '0'...'9' => {
+                    result.tag = .number_literal;
                     self.index += 1;
+                    continue :state .int;
                 },
+
                 '(' => {
                     result.tag = .l_paren;
                     self.index += 1;
                 },
                 ')' => {
                     result.tag = .r_paren;
-                    self.index += 1;
-                },
-                ';' => {
-                    result.tag = .semicolon;
                     self.index += 1;
                 },
                 '{' => {
@@ -105,10 +106,31 @@ pub const Tokenizer = struct {
                     result.tag = .r_brace;
                     self.index += 1;
                 },
-                '0'...'9' => {
-                    result.tag = .number_literal;
+                ';' => {
+                    result.tag = .semicolon;
                     self.index += 1;
-                    continue :state .int;
+                },
+
+                '-' => continue :state .hyphen,
+                '~' => {
+                    result.tag = .tilde;
+                    self.index += 1;
+                },
+                '+' => {
+                    result.tag = .plus;
+                    self.index += 1;
+                },
+                '*' => {
+                    result.tag = .asterisk;
+                    self.index += 1;
+                },
+                '/' => {
+                    result.tag = .f_slash;
+                    self.index += 1;
+                },
+                '%' => {
+                    result.tag = .percent;
+                    self.index += 1;
                 },
                 else => result.tag = .invalid,
             },

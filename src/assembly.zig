@@ -58,13 +58,13 @@ pub const FuncDef = struct {
         writer: anytype,
     ) !void {
         if (std.mem.eql(u8, fmt, "gen")) {
-            try writer.print(indent(
-                \\.globl _{0s}
-                \\_{0s}:
-                \\pushq   %rbp
-                \\movq    %rsp, %rbp
-                \\
-            ), .{self.name});
+try writer.print(indent(
+    \\.globl _{0s}
+    \\_{0s}:
+    \\pushq   %rbp
+    \\movq    %rsp, %rbp
+    \\
+), .{self.name});
             for (self.instrs.items) |instr|
                 try writer.print("{gen}\n", .{instr});
         } else {
