@@ -33,6 +33,16 @@ pub const Token = struct {
         f_slash, // /
         percent, // %
 
+        bang, // !
+        double_ambersand, // &&
+        double_pipe, // ||
+        double_equals, // ==
+        bang_equal, // !=
+        lesser_than, // <
+        greater_than, // >,
+        lesser_equals, // <=
+        greater_equals, // >=
+
         type_int,
 
         keyword_void,
@@ -69,8 +79,15 @@ pub const Tokenizer = struct {
     const State = enum {
         start,
         identifier,
-        hyphen,
         int,
+        hyphen,
+
+        bang,
+        ambersand,
+        pipe,
+        equals,
+        lesser_than,
+        greater_than,
     };
 
     pub inline fn put_back(self: *Tokenizer, token: Token) void {
@@ -149,6 +166,12 @@ pub const Tokenizer = struct {
                     result.tag = .percent;
                     self.index += 1;
                 },
+                '!' => continue :state .bang,
+                '&' => continue :state .ambersand,
+                '|' => continue :state .pipe,
+                '=' => continue :state .equals,
+                '<' => continue :state .lesser_than,
+                '>' => continue :state .greater_than,
                 else => result.tag = .invalid,
             },
 
@@ -179,6 +202,67 @@ pub const Tokenizer = struct {
                 switch (self.buffer[self.index]) {
                     '-' => result.tag = .invalid,
                     else => result.tag = .hyphen,
+                }
+            },
+
+            .bang => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    '=' => {
+                        self.index += 1;
+                        result.tag = .bang_equal;
+                    },
+                    else => result.tag = .bang,
+                }
+            },
+            .ambersand => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    '&' => {
+                        self.index += 1;
+                        result.tag = .double_ambersand;
+                    },
+                    else => result.tag = .invalid,
+                }
+            },
+            .pipe => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    '|' => {
+                        self.index += 1;
+                        result.tag = .double_pipe;
+                    },
+                    else => result.tag = .invalid,
+                }
+            },
+            .equals => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    '=' => {
+                        self.index += 1;
+                        result.tag = .double_equals;
+                    },
+                    else => result.tag = .invalid, // todo
+                }
+            },
+            .lesser_than => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    '=' => {
+                        self.index += 1;
+                        result.tag = .lesser_equals;
+                    },
+                    else => result.tag = .lesser_than,
+                }
+            },
+            .greater_than => {
+                self.index += 1;
+                switch (self.buffer[self.index]) {
+                    '=' => {
+                        self.index += 1;
+                        result.tag = .greater_equals;
+                    },
+                    else => result.tag = .greater_than,
                 }
             },
         }
