@@ -52,25 +52,51 @@ fn instr_to_asm(
                 .ret,
             });
         },
-        .unop_not => |u| {
+        .unop_not, .unop_neg => |u| {
             const src = value_to_asm(u.src);
             const dst = value_to_asm(u.dst);
 
             return try alloc.dupe(assembly.Instr, &.{
                 .{ .mov = .init(src, dst) },
-                .{ .not = dst },
+                switch (instr) {
+                    .unop_not => .{ .not = dst },
+                    .unop_neg => .{ .neg = dst },
+                    else => unreachable,
+                },
             });
         },
-        .unop_neg => |u| {
-            const src = value_to_asm(u.src);
-            const dst = value_to_asm(u.dst);
+
+        .binop_add, .binop_sub, .binop_mul => |b| {
+            const src1 = value_to_asm(b.src1);
+            const src2 = value_to_asm(b.src2);
+            const dst = value_to_asm(b.dst);
 
             return try alloc.dupe(assembly.Instr, &.{
-                .{ .mov = .init(src, dst) },
-                .{ .neg = dst },
+                .{ .mov = .init(src1, dst) },
+                switch (instr) {
+                    .binop_add => .{ .add = .init(src2, dst) },
+                    .binop_sub => .{ .sub = .init(src2, dst) },
+                    .binop_mul => .{ .mul = .init(src2, dst) },
+                    else => unreachable,
+                },
             });
         },
-        else => @panic("todo"),
+        .binop_div, .binop_rem => |b| {
+            const src1 = value_to_asm(b.src1);
+            const src2 = value_to_asm(b.src2);
+            const dst = value_to_asm(b.dst);
+
+            const dst_reg: assembly.Operand.Register =
+                if (instr == .binop_div) .AX else .DX;
+
+            return try alloc.dupe(assembly.Instr, &.{
+                .{ .mov = .init(src1, .{ .reg = .AX }) },
+                .cdq,
+                .{ .idiv = src2 },
+                .{ .mov = .init(.{ .reg = dst_reg }, dst) },
+            });
+        },
+        // else => @panic("todo"),
     }
 }
 

@@ -58,13 +58,13 @@ pub const FuncDef = struct {
         writer: anytype,
     ) !void {
         if (std.mem.eql(u8, fmt, "gen")) {
-try writer.print(indent(
-    \\.globl _{0s}
-    \\_{0s}:
-    \\pushq   %rbp
-    \\movq    %rsp, %rbp
-    \\
-), .{self.name});
+            try writer.print(indent(
+                \\.globl _{0s}
+                \\_{0s}:
+                \\pushq   %rbp
+                \\movq    %rsp, %rbp
+                \\
+            ), .{self.name});
             for (self.instrs.items) |instr|
                 try writer.print("{gen}\n", .{instr});
         } else {
@@ -89,6 +89,14 @@ pub const Instr = union(enum) {
     neg: Operand,
     not: Operand,
 
+    // binary operations
+    add: Mov,
+    sub: Mov,
+    mul: Mov,
+
+    idiv: Operand,
+
+    cdq: void,
     // weird and useless type magic happens here. just write u64
     allocate_stack: Depth,
 
@@ -121,7 +129,7 @@ pub const Instr = union(enum) {
                 .neg => |o| try writer.print("\tnegl    {gen}", .{o}),
                 .not => |o| try writer.print("\tnotl    {gen}", .{o}),
                 .allocate_stack => |d| try writer.print("\tsubq    ${d}, %rsp", .{d}),
-                // else => @panic("unimplemented"),
+                else => @panic("unimplemented"),
             }
         } else {
             const w = options.width orelse 0;
@@ -129,9 +137,14 @@ pub const Instr = union(enum) {
 
             switch (self) {
                 .ret => try writer.writeAll("ret"),
-                .mov => |mov| try writer.print("mov\t{[src]} -> {[dst]}", mov),
+                .mov => |m| try writer.print("mov\t{[src]} -> {[dst]}", m),
                 .neg => |o| try writer.print("neg\t{}", .{o}),
                 .not => |o| try writer.print("not\t{}", .{o}),
+                .add => |m| try writer.print("add\t{[src]} -> {[dst]}", m),
+                .sub => |m| try writer.print("sub\t{[src]} -> {[dst]}", m),
+                .mul => |m| try writer.print("mul\t{[src]} -> {[dst]}", m),
+                .idiv => |o| try writer.print("idiv\t{}", .{o}),
+                .cdq => try writer.print("cdq", .{}),
                 .allocate_stack => |d| try writer.print("allocate\t{d}", .{d}),
             }
         }
@@ -144,7 +157,7 @@ pub const Operand = union(enum) {
     pseudo: [:0]const u8,
     stack: Offset,
 
-    pub const Register = enum { AX, R10 };
+    pub const Register = enum { AX, DX, R10, R11 };
     pub const Offset = i64;
 
     pub fn format(
@@ -158,10 +171,12 @@ pub const Operand = union(enum) {
                 .imm => |i| try writer.print("${d}", .{i}),
                 .reg => |r| switch (r) {
                     .AX => try writer.print("%eax", .{}),
+                    .DX => try writer.print("%edx", .{}),
                     .R10 => try writer.print("%r10d", .{}),
+                    .R11 => try writer.print("%r11d", .{}),
                 },
                 .stack => |d| try writer.print("{d}(%rsp)", .{d}),
-                else => @panic("unimplemented"),
+                .pseudo => @panic("wrong code path"),
             }
         } else {
             const w = options.width orelse 0;

@@ -21,6 +21,10 @@ pub fn fixup_instrs(
     const State = enum {
         start,
         mov_stack_stack,
+        add_stack_stack,
+        sub_stack_stack,
+        mul_to_stack,
+        idiv_const,
         legal,
     };
 
@@ -31,12 +35,46 @@ pub fn fixup_instrs(
                     continue :state .mov_stack_stack
                 else
                     continue :state .legal,
+                .add => |m| if (m.src == .stack and m.dst == .stack)
+                    continue :state .add_stack_stack
+                else
+                    continue :state .legal,
+                .sub => |m| if (m.src == .stack and m.dst == .stack)
+                    continue :state .sub_stack_stack
+                else
+                    continue :state .legal,
+                .mul => |m| if (m.dst == .stack)
+                    continue :state .mul_to_stack
+                else
+                    continue :state .legal,
+                .idiv => |o| if (o == .imm)
+                    continue :state .idiv_const
+                else
+                    continue :state .legal,
+
                 else => continue :state .legal,
             },
 
             .mov_stack_stack => try out.appendSlice(alloc, &.{
                 .{ .mov = .init(instr.mov.src, .{ .reg = .R10 }) },
                 .{ .mov = .init(.{ .reg = .R10 }, instr.mov.dst) },
+            }),
+            .add_stack_stack => try out.appendSlice(alloc, &.{
+                .{ .mov = .init(instr.add.src, .{ .reg = .R10 }) },
+                .{ .add = .init(.{ .reg = .R10 }, instr.add.dst) },
+            }),
+            .sub_stack_stack => try out.appendSlice(alloc, &.{
+                .{ .mov = .init(instr.sub.src, .{ .reg = .R10 }) },
+                .{ .sub = .init(.{ .reg = .R10 }, instr.sub.dst) },
+            }),
+            .mul_to_stack => try out.appendSlice(alloc, &.{
+                .{ .mov = .init(instr.mul.dst, .{ .reg = .R11 }) },
+                .{ .mul = .init(instr.mul.src, .{ .reg = .R11 }) },
+                .{ .mov = .init(.{ .reg = .R11 }, instr.mul.dst) },
+            }),
+            .idiv_const => try out.appendSlice(alloc, &.{
+                .{ .mov = .init(instr.idiv, .{ .reg = .R11 }) },
+                .{ .idiv = .{ .reg = .R11 } },
             }),
 
             .legal => try out.append(alloc, instr),
