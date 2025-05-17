@@ -58,8 +58,8 @@ pub const Stmt = union(enum) {
 
 pub const Expr = union(enum) {
     constant: u64,
-    unop_negate: *Expr,
-    unop_complement: *Expr,
+    unop_neg: *Expr,
+    unop_not: *Expr,
     binop_add: BinOp,
     binop_sub: BinOp,
     binop_mul: BinOp,
@@ -77,8 +77,8 @@ pub const Expr = union(enum) {
         switch (self) {
             .constant => |c| try writer.print("{d}", .{c}),
             // S-Expr
-            .unop_negate => |e| try writer.print("(- {})", .{e}),
-            .unop_complement => |e| try writer.print("(~ {})", .{e}),
+            .unop_neg => |e| try writer.print("(- {})", .{e}),
+            .unop_not => |e| try writer.print("(~ {})", .{e}),
             .binop_add => |b| try writer.print("(+ {} {})", b),
             .binop_sub => |b| try writer.print("(- {} {})", b),
             .binop_mul => |b| try writer.print("(* {} {})", b),

@@ -52,7 +52,7 @@ fn instr_to_asm(
                 .ret,
             });
         },
-        .unop_complement => |u| {
+        .unop_not => |u| {
             const src = value_to_asm(u.src);
             const dst = value_to_asm(u.dst);
 
@@ -61,7 +61,7 @@ fn instr_to_asm(
                 .{ .not = dst },
             });
         },
-        .unop_negate => |u| {
+        .unop_neg => |u| {
             const src = value_to_asm(u.src);
             const dst = value_to_asm(u.dst);
 
@@ -70,6 +70,7 @@ fn instr_to_asm(
                 .{ .neg = dst },
             });
         },
+        else => @panic("todo"),
     }
 }
 

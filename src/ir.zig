@@ -53,17 +53,34 @@ pub const FuncDef = struct {
 
 pub const Instr = union(enum) {
     ret: Value,
-    unop_negate: Unary,
-    unop_complement: Unary,
 
-    pub const Unary = struct {
-        src: Value,
-        dst: Value,
+    unop_neg: Unary,
+    unop_not: Unary,
 
-        pub fn init(src: Value, dst: Value) @This() {
-            return .{ .src = src, .dst = dst };
-        }
-    };
+    binop_add: Binary,
+    binop_sub: Binary,
+    binop_mul: Binary,
+    binop_div: Binary,
+    binop_rem: Binary,
+
+pub const Unary = struct {
+    src: Value,
+    dst: Value,
+
+    pub fn init(src: Value, dst: Value) @This() {
+        return .{ .src = src, .dst = dst };
+    }
+};
+
+pub const Binary = struct {
+    src1: Value,
+    src2: Value,
+    dst: Value,
+
+    pub fn init(src1: Value, src2: Value, dst: Value) @This() {
+        return .{ .src1 = src1, .src2 = src2, .dst = dst };
+    }
+};
 
     pub fn format(
         self: @This(),
@@ -76,14 +93,13 @@ pub const Instr = union(enum) {
 
         switch (self) {
             .ret => |v| try writer.print("ret {}", .{v}),
-            .unop_negate => |u| try writer.print(
-                "{[dst]} <- negate {[src]}",
-                u,
-            ),
-            .unop_complement => |u| try writer.print(
-                "{[dst]} <- complement {[src]}",
-                u,
-            ),
+            .unop_neg => |u| try writer.print("{[dst]} <- - {[src]}", u),
+            .unop_not => |u| try writer.print("{[dst]} <- ~ {[src]}", u),
+            .binop_add => |b| try writer.print("{[dst]} <- {[src1]} + {[src2]}", b),
+            .binop_sub => |b| try writer.print("{[dst]} <- {[src1]} + {[src2]}", b),
+            .binop_mul => |b| try writer.print("{[dst]} <- {[src1]} + {[src2]}", b),
+            .binop_div => |b| try writer.print("{[dst]} <- {[src1]} + {[src2]}", b),
+            .binop_rem => |b| try writer.print("{[dst]} <- {[src1]} + {[src2]}", b),
         }
     }
 };

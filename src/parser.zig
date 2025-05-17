@@ -95,11 +95,11 @@ fn parse_factor(
         },
         .hyphen => {
             const inner_exp = try parse_factor(alloc, tokens);
-            return try utils.create(ast.Expr, alloc, .{ .unop_negate = inner_exp });
+            return try utils.create(ast.Expr, alloc, .{ .unop_neg = inner_exp });
         },
         .tilde => {
             const inner_exp = try parse_factor(alloc, tokens);
-            return try utils.create(ast.Expr, alloc, .{ .unop_complement = inner_exp });
+            return try utils.create(ast.Expr, alloc, .{ .unop_not = inner_exp });
         },
         .l_paren => {
             const inner_exp = try parse_expr(alloc, tokens, 0);
