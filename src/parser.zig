@@ -67,6 +67,16 @@ fn parse_expr(
             .asterisk => .{ .binop_mul = bin_op },
             .f_slash => .{ .binop_div = bin_op },
             .percent => .{ .binop_rem = bin_op },
+
+            .double_ambersand => .{ .binop_and = bin_op },
+            .double_pipe => .{ .binop_or = bin_op },
+            .double_equals => .{ .binop_eql = bin_op },
+            .bang_equals => .{ .binop_eqn = bin_op },
+            .lesser_than => .{ .binop_lt = bin_op },
+            .greater_than => .{ .binop_gt = bin_op },
+            .lesser_equals => .{ .binop_le = bin_op },
+            .greater_equals => .{ .binop_ge = bin_op },
+
             else => unreachable,
         };
         lhs = try utils.create(ast.Expr, alloc, new_lhs);
@@ -100,6 +110,10 @@ fn parse_factor(
         .tilde => {
             const inner_exp = try parse_factor(alloc, tokens);
             return try utils.create(ast.Expr, alloc, .{ .unop_not = inner_exp });
+        },
+        .bang => {
+            const inner_exp = try parse_factor(alloc, tokens);
+            return try utils.create(ast.Expr, alloc, .{ .unop_lnot = inner_exp });
         },
         .l_paren => {
             const inner_exp = try parse_expr(alloc, tokens, 0);

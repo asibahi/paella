@@ -37,7 +37,7 @@ pub const Token = struct {
         double_ambersand, // &&
         double_pipe, // ||
         double_equals, // ==
-        bang_equal, // !=
+        bang_equals, // !=
         lesser_than, // <
         greater_than, // >,
         lesser_equals, // <=
@@ -62,6 +62,16 @@ pub const Token = struct {
                 .hyphen, // -
                 .plus, // +
                 => 45,
+                .lesser_than,
+                .lesser_equals,
+                .greater_than,
+                .greater_equals,
+                => 35,
+                .double_equals,
+                .bang_equals,
+                => 30,
+                .double_ambersand => 10,
+                .double_pipe => 5,
                 else => null,
             };
         }
@@ -210,7 +220,7 @@ pub const Tokenizer = struct {
                 switch (self.buffer[self.index]) {
                     '=' => {
                         self.index += 1;
-                        result.tag = .bang_equal;
+                        result.tag = .bang_equals;
                     },
                     else => result.tag = .bang,
                 }

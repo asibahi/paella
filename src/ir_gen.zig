@@ -90,7 +90,7 @@ fn expr_emit_ir(
             try bp.append(.{ .binop_rem = binary });
             return binary.dst;
         },
-        // else => @panic("todo"),
+        else => @panic("todo"),
     }
 }
 
