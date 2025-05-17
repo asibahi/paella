@@ -13,13 +13,12 @@ pub fn replace_pseudos(
 
     for (prgm.func_def.instrs.items) |*instr| {
         switch (instr.*) {
-            .mov, .add, .sub,.mul => |*m| m.* = .init(
+            .mov, .add, .sub, .mul => |*m| m.* = .init(
                 try pseudo_to_stack(m.src, &pseudo_map),
                 try pseudo_to_stack(m.dst, &pseudo_map),
             ),
-            .neg, .not , .idiv=> |*v| v.* = try pseudo_to_stack(v.*, &pseudo_map),
+            .neg, .not, .idiv => |*v| v.* = try pseudo_to_stack(v.*, &pseudo_map),
             .ret, .cdq, .allocate_stack => {},
-
         }
     }
 

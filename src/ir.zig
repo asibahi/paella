@@ -63,24 +63,24 @@ pub const Instr = union(enum) {
     binop_div: Binary,
     binop_rem: Binary,
 
-pub const Unary = struct {
-    src: Value,
-    dst: Value,
+    pub const Unary = struct {
+        src: Value,
+        dst: Value,
 
-    pub fn init(src: Value, dst: Value) @This() {
-        return .{ .src = src, .dst = dst };
-    }
-};
+        pub fn init(src: Value, dst: Value) @This() {
+            return .{ .src = src, .dst = dst };
+        }
+    };
 
-pub const Binary = struct {
-    src1: Value,
-    src2: Value,
-    dst: Value,
+    pub const Binary = struct {
+        src1: Value,
+        src2: Value,
+        dst: Value,
 
-    pub fn init(src1: Value, src2: Value, dst: Value) @This() {
-        return .{ .src1 = src1, .src2 = src2, .dst = dst };
-    }
-};
+        pub fn init(src1: Value, src2: Value, dst: Value) @This() {
+            return .{ .src1 = src1, .src2 = src2, .dst = dst };
+        }
+    };
 
     pub fn format(
         self: @This(),
