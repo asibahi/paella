@@ -116,21 +116,25 @@ pub const Instr = union(enum) {
         options: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        if (std.mem.eql(u8, fmt, "gen")) {
-            switch (self) {
-                .mov => |mov| try writer.print(indent(
-                    \\movl    {[src]gen}, {[dst]gen}
-                ), mov),
-                .ret => try writer.writeAll(indent(
-                    \\movq    %rbp, %rsp
-                    \\popq    %rbp
-                    \\ret
-                )),
-                .neg => |o| try writer.print("\tnegl    {gen}", .{o}),
-                .not => |o| try writer.print("\tnotl    {gen}", .{o}),
-                .allocate_stack => |d| try writer.print("\tsubq    ${d}, %rsp", .{d}),
-                else => @panic("unimplemented"),
-            }
+        if (std.mem.eql(u8, fmt, "gen")) switch (self) {
+            .mov => |m| try writer.print(indent(
+                \\movl    {[src]gen}, {[dst]gen}
+            ), m),
+            .ret => try writer.writeAll(indent(
+                \\movq    %rbp, %rsp
+                \\popq    %rbp
+                \\ret
+            )),
+            .neg => |o| try writer.print("\tnegl    {gen}", .{o}),
+            .not => |o| try writer.print("\tnotl    {gen}", .{o}),
+            .add => |m| try writer.print("\taddl    {[src]gen}, {[dst]gen}", m),
+            .sub => |m| try writer.print("\tsubl    {[src]gen}, {[dst]gen}", m),
+            .mul => |m| try writer.print("\timull   {[src]gen}, {[dst]gen}", m),
+            .idiv => |o| try writer.print("\tidivl   {gen}", .{o}),
+
+            .cdq => try writer.print("\tcdq", .{}),
+            .allocate_stack => |d| try writer.print("\tsubq    ${d}, %rsp", .{d}),
+            // else => @panic("unimplemented"),
         } else {
             const w = options.width orelse 0;
             try writer.writeByteNTimes('\t', w);
@@ -166,18 +170,16 @@ pub const Operand = union(enum) {
         options: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        if (std.mem.eql(u8, fmt, "gen")) {
-            switch (self) {
-                .imm => |i| try writer.print("${d}", .{i}),
-                .reg => |r| switch (r) {
-                    .AX => try writer.print("%eax", .{}),
-                    .DX => try writer.print("%edx", .{}),
-                    .R10 => try writer.print("%r10d", .{}),
-                    .R11 => try writer.print("%r11d", .{}),
-                },
-                .stack => |d| try writer.print("{d}(%rsp)", .{d}),
-                .pseudo => @panic("wrong code path"),
-            }
+        if (std.mem.eql(u8, fmt, "gen")) switch (self) {
+            .imm => |i| try writer.print("${d}", .{i}),
+            .reg => |r| switch (r) {
+                .AX => try writer.print("%eax", .{}),
+                .DX => try writer.print("%edx", .{}),
+                .R10 => try writer.print("%r10d", .{}),
+                .R11 => try writer.print("%r11d", .{}),
+            },
+            .stack => |d| try writer.print("{d}(%rsp)", .{d}),
+            .pseudo => @panic("wrong code path"),
         } else {
             const w = options.width orelse 0;
             try writer.writeByteNTimes('\t', w);
