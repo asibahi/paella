@@ -65,6 +65,11 @@ fn expr_emit_ir(
             try bp.append(.{ .unop_not = unary });
             return unary.dst;
         },
+        .unop_lnot => |e| {
+            const unary = try bp.unary(e, "lnot");
+            try bp.append(.{ .unop_lnot = unary });
+            return unary.dst;
+        },
         .binop_add => |b| {
             const binary = try bp.binary(b, "add");
             try bp.append(.{ .binop_add = binary });
@@ -90,7 +95,76 @@ fn expr_emit_ir(
             try bp.append(.{ .binop_rem = binary });
             return binary.dst;
         },
-        else => @panic("todo"),
+
+        .binop_eql => |b| {
+            const binary = try bp.binary(b, "eql");
+            try bp.append(.{ .binop_eql = binary });
+            return binary.dst;
+        },
+        .binop_neq => |b| {
+            const binary = try bp.binary(b, "neq");
+            try bp.append(.{ .binop_neq = binary });
+            return binary.dst;
+        },
+        .binop_lt => |b| {
+            const binary = try bp.binary(b, "lt");
+            try bp.append(.{ .binop_lt = binary });
+            return binary.dst;
+        },
+        .binop_le => |b| {
+            const binary = try bp.binary(b, "le");
+            try bp.append(.{ .binop_le = binary });
+            return binary.dst;
+        },
+        .binop_gt => |b| {
+            const binary = try bp.binary(b, "gt");
+            try bp.append(.{ .binop_gt = binary });
+            return binary.dst;
+        },
+        .binop_ge => |b| {
+            const binary = try bp.binary(b, "ge");
+            try bp.append(.{ .binop_ge = binary });
+            return binary.dst;
+        },
+
+        .binop_and => |b| {
+            const false_label = try bp.make_temporary("false_and");
+            const end_label = try bp.make_temporary("end_and");
+            const result = try bp.make_temporary("dst_and");
+
+            const src1 = try expr_emit_ir(bp, b.@"0");
+            try bp.append(.{ .jump_z = .init(src1, false_label) });
+            const src2 = try expr_emit_ir(bp, b.@"1");
+            try bp.append(.{ .jump_z = .init(src2, false_label) });
+            const dst: ir.Value = .{ .variable = result };
+            try bp.append(.{ .copy = .init(.{ .constant = 1 }, dst) });
+            try bp.append(.{ .jump = end_label });
+            try bp.append(.{ .label = false_label });
+            try bp.append(.{ .copy = .init(.{ .constant = 0 }, dst) });
+            try bp.append(.{ .label = end_label });
+
+            return dst;
+        },
+        .binop_or => |b| {
+            const true_label = try bp.make_temporary("true_or");
+            const end_label = try bp.make_temporary("end_or");
+            const result = try bp.make_temporary("dst_or");
+
+            const src1 = try expr_emit_ir(bp, b.@"0");
+            try bp.append(.{ .jump_nz = .init(src1, true_label) });
+            const src2 = try expr_emit_ir(bp, b.@"1");
+            try bp.append(.{ .jump_nz = .init(src2, true_label) });
+            const dst: ir.Value = .{ .variable = result };
+            try bp.append(.{ .copy = .init(.{ .constant = 0 }, dst) });
+            try bp.append(.{ .jump = end_label });
+            try bp.append(.{ .label = true_label });
+            try bp.append(.{ .copy = .init(.{ .constant = 1 }, dst) });
+            try bp.append(.{ .label = end_label });
+
+            return dst;
+        },
+
+        // else => @panic("todo"),
     }
 }
 
@@ -106,13 +180,35 @@ const Boilerplate = struct {
         try self.instrs.append(self.alloc, instr);
     }
 
+    fn make_temporary(
+        self: @This(),
+        comptime prefix: []const u8,
+    ) Error![:0]const u8 {
+        // zig static variables
+        const static = struct {
+            var counter: usize = 0;
+        };
+
+        var buf: [16]u8 = undefined;
+        const name_buf = try std.fmt.bufPrint(
+            &buf,
+            (if (prefix.len == 0) "tmp" else prefix) ++ ".{}",
+            .{static.counter},
+        );
+
+        const name = try self.strings.get_or_put(self.alloc, name_buf);
+        static.counter += 1;
+
+        return name.string;
+    }
+
     fn unary(
         self: @This(),
         e: *ast.Expr,
         comptime prefix: []const u8,
     ) Error!ir.Instr.Unary {
         const src = try expr_emit_ir(self, e);
-        const dst_name = try make_temporary(self.alloc, self.strings, prefix);
+        const dst_name = try self.make_temporary(prefix);
         const dst: ir.Value = .{ .variable = dst_name };
 
         return .init(src, dst);
@@ -125,37 +221,12 @@ const Boilerplate = struct {
     ) Error!ir.Instr.Binary {
         const src1 = try expr_emit_ir(self, b.@"0");
         const src2 = try expr_emit_ir(self, b.@"1");
-        const dst_name = try make_temporary(self.alloc, self.strings, prefix);
+        const dst_name = try self.make_temporary(prefix);
         const dst: ir.Value = .{ .variable = dst_name };
 
         return .init(src1, src2, dst);
     }
 };
-
-fn make_temporary(
-    alloc: std.mem.Allocator,
-    strings: *utils.StringInterner,
-    comptime prefix: []const u8,
-) Error![:0]const u8 {
-
-    // zig static variables
-    const static = struct {
-        var counter: usize = 0;
-    };
-
-    var buf: [16]u8 = undefined;
-    const name_buf = try std.fmt.bufPrint(
-        &buf,
-        (if (prefix.len == 0) "tmp" else prefix) ++ ".{}",
-        .{static.counter},
-    );
-
-    const name = try strings.get_or_put(alloc, name_buf);
-
-    static.counter += 1;
-
-    return name.string;
-}
 
 const Error =
     std.mem.Allocator.Error || std.fmt.BufPrintError;

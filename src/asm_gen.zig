@@ -96,7 +96,7 @@ fn instr_to_asm(
                 .{ .mov = .init(.{ .reg = dst_reg }, dst) },
             });
         },
-        // else => @panic("todo"),
+        else => @panic("todo"),
     }
 }
 

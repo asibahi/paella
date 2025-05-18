@@ -71,7 +71,7 @@ fn parse_expr(
             .double_ambersand => .{ .binop_and = bin_op },
             .double_pipe => .{ .binop_or = bin_op },
             .double_equals => .{ .binop_eql = bin_op },
-            .bang_equals => .{ .binop_eqn = bin_op },
+            .bang_equals => .{ .binop_neq = bin_op },
             .lesser_than => .{ .binop_lt = bin_op },
             .greater_than => .{ .binop_gt = bin_op },
             .lesser_equals => .{ .binop_le = bin_op },

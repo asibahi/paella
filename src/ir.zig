@@ -54,14 +54,29 @@ pub const FuncDef = struct {
 pub const Instr = union(enum) {
     ret: Value,
 
+    copy: Unary,
+    jump: [:0]const u8,
+    jump_z: JumpIf,
+    jump_nz: JumpIf,
+
+    label: [:0]const u8,
+
     unop_neg: Unary,
     unop_not: Unary,
+    unop_lnot: Unary, // <-- new
 
     binop_add: Binary,
     binop_sub: Binary,
     binop_mul: Binary,
     binop_div: Binary,
     binop_rem: Binary,
+
+    binop_eql: Binary,
+    binop_neq: Binary,
+    binop_lt: Binary,
+    binop_le: Binary,
+    binop_gt: Binary,
+    binop_ge: Binary,
 
     pub const Unary = struct {
         src: Value,
@@ -82,6 +97,15 @@ pub const Instr = union(enum) {
         }
     };
 
+    pub const JumpIf = struct {
+        cond: Value,
+        target: [:0]const u8,
+
+        pub fn init(cond: Value, target: [:0]const u8) @This() {
+            return .{ .cond = cond, .target = target };
+        }
+    };
+
     pub fn format(
         self: @This(),
         comptime _: []const u8,
@@ -93,13 +117,30 @@ pub const Instr = union(enum) {
 
         switch (self) {
             .ret => |v| try writer.print("ret {}", .{v}),
+
+            .copy => |u| try writer.print("{[dst]} <- {[src]}", u),
+            .jump => |l| try writer.print("jump => {s}", .{l}),
+            .jump_z => |j| try writer.print("jz  {[cond]} => {[target]s}", j),
+            .jump_nz => |j| try writer.print("jnz {[cond]} => {[target]s}", j),
+
+            .label => |l| try writer.print("=> {s}", .{l}),
+
             .unop_neg => |u| try writer.print("{[dst]} <- - {[src]}", u),
             .unop_not => |u| try writer.print("{[dst]} <- ~ {[src]}", u),
+            .unop_lnot => |u| try writer.print("{[dst]} <- ! {[src]}", u),
+
             .binop_add => |b| try writer.print("{[dst]} <- {[src1]} + {[src2]}", b),
-            .binop_sub => |b| try writer.print("{[dst]} <- {[src1]} + {[src2]}", b),
-            .binop_mul => |b| try writer.print("{[dst]} <- {[src1]} + {[src2]}", b),
-            .binop_div => |b| try writer.print("{[dst]} <- {[src1]} + {[src2]}", b),
-            .binop_rem => |b| try writer.print("{[dst]} <- {[src1]} + {[src2]}", b),
+            .binop_sub => |b| try writer.print("{[dst]} <- {[src1]} - {[src2]}", b),
+            .binop_mul => |b| try writer.print("{[dst]} <- {[src1]} * {[src2]}", b),
+            .binop_div => |b| try writer.print("{[dst]} <- {[src1]} / {[src2]}", b),
+            .binop_rem => |b| try writer.print("{[dst]} <- {[src1]} % {[src2]}", b),
+
+            .binop_eql => |b| try writer.print("{[dst]} <- {[src1]} == {[src2]}", b),
+            .binop_neq => |b| try writer.print("{[dst]} <- {[src1]} != {[src2]}", b),
+            .binop_lt => |b| try writer.print("{[dst]} <- {[src1]} < {[src2]}", b),
+            .binop_le => |b| try writer.print("{[dst]} <- {[src1]} <= {[src2]}", b),
+            .binop_gt => |b| try writer.print("{[dst]} <- {[src1]} > {[src2]}", b),
+            .binop_ge => |b| try writer.print("{[dst]} <- {[src1]} >= {[src2]}", b),
         }
     }
 };
