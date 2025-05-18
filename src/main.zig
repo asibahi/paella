@@ -211,3 +211,7 @@ fn strip_extension(path: []const u8) []const u8 {
     if (index == 0) return path;
     return path[0..index];
 }
+
+test {
+    std.testing.refAllDeclsRecursive(@This());
+}

@@ -153,3 +153,28 @@ const Error =
         InvalidInt,
         ExtraJunk,
     };
+
+test "precedence" {
+    const t = std.testing;
+
+    var a_a = std.heap.ArenaAllocator.init(t.allocator);
+    defer a_a.deinit();
+    const a = a_a.allocator();
+
+    {
+        const src = "3 * 4 + 5;";
+        var tokens = lexer.Tokenizer.init(src);
+        const result = try parse_expr(a, &tokens, 0);
+
+        try t.expect(result.* == .binop_add);
+        try t.expectFmt("(+ (* 3 4) 5)", "{}", .{result});
+    }
+    {
+        const src = "4 + 3 && -17 * 4 < 5;";
+        var tokens = lexer.Tokenizer.init(src);
+        const result = try parse_expr(a, &tokens, 0);
+
+        try t.expect(result.* == .binop_and);
+        try t.expectFmt("(&& (+ 4 3) (< (* (- 17) 4) 5))", "{}", .{result});
+    }
+}
