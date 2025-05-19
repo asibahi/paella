@@ -21,6 +21,8 @@ pub fn fixup_instrs(
     const State = enum {
         start,
         mov_stack_stack,
+        cmp_stack_stack,
+        cmp_to_imm,
         add_stack_stack,
         sub_stack_stack,
         mul_to_stack,
@@ -33,6 +35,12 @@ pub fn fixup_instrs(
             .start => switch (instr) {
                 .mov => |m| if (m.src == .stack and m.dst == .stack)
                     continue :state .mov_stack_stack
+                else
+                    continue :state .legal,
+                .cmp => |m| if (m.src == .stack and m.dst == .stack)
+                    continue :state .cmp_stack_stack
+                else if (m.dst == .imm)
+                    continue :state .cmp_to_imm
                 else
                     continue :state .legal,
                 .add => |m| if (m.src == .stack and m.dst == .stack)
@@ -58,6 +66,14 @@ pub fn fixup_instrs(
             .mov_stack_stack => try out.appendSlice(alloc, &.{
                 .{ .mov = .init(instr.mov.src, .{ .reg = .R10 }) },
                 .{ .mov = .init(.{ .reg = .R10 }, instr.mov.dst) },
+            }),
+            .cmp_stack_stack => try out.appendSlice(alloc, &.{
+                .{ .mov = .init(instr.cmp.src, .{ .reg = .R10 }) },
+                .{ .cmp = .init(.{ .reg = .R10 }, instr.cmp.dst) },
+            }),
+            .cmp_to_imm => try out.appendSlice(alloc, &.{
+                .{ .mov = .init(instr.cmp.dst, .{ .reg = .R11 }) },
+                .{ .cmp = .init(instr.cmp.src, .{ .reg = .R11 }) },
             }),
             .add_stack_stack => try out.appendSlice(alloc, &.{
                 .{ .mov = .init(instr.add.src, .{ .reg = .R10 }) },

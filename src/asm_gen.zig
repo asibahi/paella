@@ -65,6 +65,16 @@ fn instr_to_asm(
                 },
             });
         },
+        .unop_lnot => |u| {
+            const src = value_to_asm(u.src);
+            const dst = value_to_asm(u.dst);
+
+            return try alloc.dupe(assembly.Instr, &.{
+                .{ .cmp = .init(.{ .imm = 0 }, src) },
+                .{ .mov = .init(.{ .imm = 0 }, dst) },
+                .{ .set_cc = .{ .e, dst } },
+            });
+        },
 
         .binop_add, .binop_sub, .binop_mul => |b| {
             const src1 = value_to_asm(b.src1);
@@ -96,7 +106,44 @@ fn instr_to_asm(
                 .{ .mov = .init(.{ .reg = dst_reg }, dst) },
             });
         },
-        else => @panic("todo"),
+        .binop_eql, .binop_neq, .binop_lt, .binop_le, .binop_gt, .binop_ge => |b| {
+            const src1 = value_to_asm(b.src1);
+            const src2 = value_to_asm(b.src2);
+            const dst = value_to_asm(b.dst);
+
+            const cc: assembly.Instr.CondCode = switch (instr) {
+                .binop_eql => .e,
+                .binop_neq => .ne,
+                .binop_lt => .l,
+                .binop_le => .le,
+                .binop_gt => .g,
+                .binop_ge => .ge,
+                else => unreachable,
+            };
+
+            return try alloc.dupe(assembly.Instr, &.{
+                .{ .cmp = .init(src2, src1) },
+                .{ .mov = .init(.{ .imm = 0 }, dst) },
+                .{ .set_cc = .{ cc, dst } },
+            });
+        },
+        .label => |s| return try alloc.dupe(assembly.Instr, &.{
+            .{ .label = s },
+        }),
+        .jump => |s| return try alloc.dupe(assembly.Instr, &.{
+            .{ .jmp = s },
+        }),
+        .jump_z, .jump_nz => |j| return try alloc.dupe(assembly.Instr, &.{
+            .{ .cmp = .init(.{ .imm = 0 }, value_to_asm(j.cond)) },
+            .{ .jmp_cc = .{ if (instr == .jump_z) .e else .ne, j.target } },
+        }),
+        .copy => |u| return try alloc.dupe(assembly.Instr, &.{
+            .{ .mov = .init(
+                value_to_asm(u.src),
+                value_to_asm(u.dst),
+            ) },
+        }),
+        // else => @panic("todo"),
     }
 }
 

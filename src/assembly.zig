@@ -85,6 +85,12 @@ pub const Instr = union(enum) {
     mov: Mov,
     ret: void,
 
+    cmp: Mov,
+    jmp: [:0]const u8,
+    jmp_cc: struct { CondCode, [:0]const u8 },
+    set_cc: struct { CondCode, Operand },
+    label: [:0]const u8,
+
     // unary operations
     neg: Operand,
     not: Operand,
@@ -93,11 +99,9 @@ pub const Instr = union(enum) {
     add: Mov,
     sub: Mov,
     mul: Mov,
-
     idiv: Operand,
 
     cdq: void,
-    // weird and useless type magic happens here. just write u64
     allocate_stack: Depth,
 
     const Mov = struct {
@@ -109,6 +113,7 @@ pub const Instr = union(enum) {
         }
     };
     pub const Depth = std.meta.Int(.unsigned, @bitSizeOf(Operand.Offset));
+    pub const CondCode = enum { e, ne, g, ge, l, le };
 
     pub fn format(
         self: @This(),
@@ -120,11 +125,20 @@ pub const Instr = union(enum) {
             .mov => |m| try writer.print(indent(
                 \\movl    {[src]gen}, {[dst]gen}
             ), m),
+            .cmp => |m| try writer.print(indent(
+                \\cmpl    {[src]gen}, {[dst]gen}
+            ), m),
             .ret => try writer.writeAll(indent(
                 \\movq    %rbp, %rsp
                 \\popq    %rbp
                 \\ret
             )),
+
+            .jmp => |s| try writer.print("\tjmp    .L{s}", .{s}),
+            .jmp_cc => |s| try writer.print("\tj{s: <7}.L{s}", .{ @tagName(s.@"0"), s.@"1" }),
+            .set_cc => |s| try writer.print("\tset{s:<7}{gen:1}", .{ @tagName(s.@"0"), s.@"1" }),
+            .label => |s| try writer.print(".L{s}:", .{s}),
+
             .neg => |o| try writer.print("\tnegl    {gen}", .{o}),
             .not => |o| try writer.print("\tnotl    {gen}", .{o}),
             .add => |m| try writer.print("\taddl    {[src]gen}, {[dst]gen}", m),
@@ -134,6 +148,7 @@ pub const Instr = union(enum) {
 
             .cdq => try writer.print("\tcdq", .{}),
             .allocate_stack => |d| try writer.print("\tsubq    ${d}, %rsp", .{d}),
+
             // else => @panic("unimplemented"),
         } else {
             const w = options.width orelse 0;
@@ -142,6 +157,13 @@ pub const Instr = union(enum) {
             switch (self) {
                 .ret => try writer.writeAll("ret"),
                 .mov => |m| try writer.print("mov\t{[src]} -> {[dst]}", m),
+                .cmp => |m| try writer.print("cmp\t{[src]} -> {[dst]}", m),
+
+                .jmp => |s| try writer.print("jmp\t.L{s}", .{s}),
+                .jmp_cc => |s| try writer.print("jmp{s}\t.L{s}", .{ @tagName(s.@"0"), s.@"1" }),
+                .set_cc => |s| try writer.print("set{s}\t{}", .{ @tagName(s.@"0"), s.@"1" }),
+                .label => |s| try writer.print("=> .L{s}", .{s}),
+
                 .neg => |o| try writer.print("neg\t{}", .{o}),
                 .not => |o| try writer.print("not\t{}", .{o}),
                 .add => |m| try writer.print("add\t{[src]} -> {[dst]}", m),
@@ -172,7 +194,12 @@ pub const Operand = union(enum) {
     ) !void {
         if (std.mem.eql(u8, fmt, "gen")) switch (self) {
             .imm => |i| try writer.print("${d}", .{i}),
-            .reg => |r| switch (r) {
+            .reg => |r| if (options.width == 1) switch (r) {
+                .AX => try writer.print("%a1", .{}),
+                .DX => try writer.print("%d1", .{}),
+                .R10 => try writer.print("%r10b", .{}),
+                .R11 => try writer.print("%r11b", .{}),
+            } else switch (r) {
                 .AX => try writer.print("%eax", .{}),
                 .DX => try writer.print("%edx", .{}),
                 .R10 => try writer.print("%r10d", .{}),
@@ -202,7 +229,7 @@ inline fn indent(
         var res: []const u8 = "";
 
         while (iter.next()) |line|
-            res = if (line.len > 0 and line[0] != '_')
+            res = if (line.len > 0 and !std.mem.endsWith(u8, line, ":"))
                 res ++ "\t" ++ line ++ "\n"
             else
                 res ++ line ++ "\n";
