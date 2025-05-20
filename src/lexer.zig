@@ -36,6 +36,8 @@ pub const Token = struct {
         bang, // !
         double_ambersand, // &&
         double_pipe, // ||
+
+        equals, // =
         double_equals, // ==
         bang_equals, // !=
         lesser_than, // <
@@ -53,25 +55,26 @@ pub const Token = struct {
         identifier, // useful for state for now
         invalid,
 
-        pub fn binop_precedence(self: @This()) ?u8 {
+        pub fn binop_precedence(self: @This()) ?struct { u8, u8 } {
             return switch (self) {
                 .asterisk, // *
                 .f_slash, // /
                 .percent, // %
-                => 50,
+                => .{ 50, 1 },
                 .hyphen, // -
                 .plus, // +
-                => 45,
+                => .{ 45, 1 },
                 .lesser_than,
                 .lesser_equals,
                 .greater_than,
                 .greater_equals,
-                => 35,
+                => .{ 35, 1 },
                 .double_equals,
                 .bang_equals,
-                => 30,
-                .double_ambersand => 10,
-                .double_pipe => 5,
+                => .{ 30, 1 },
+                .double_ambersand => .{ 10, 1 },
+                .double_pipe => .{ 5, 1 },
+                .equals => .{ 1, 0 },
                 else => null,
             };
         }
@@ -252,7 +255,7 @@ pub const Tokenizer = struct {
                         self.index += 1;
                         result.tag = .double_equals;
                     },
-                    else => result.tag = .invalid, // todo
+                    else => result.tag = .equals,
                 }
             },
             .lesser_than => {

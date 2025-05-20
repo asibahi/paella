@@ -8,7 +8,7 @@ const utils = @import("utils.zig");
 pub fn prgm_emit_it(
     alloc: std.mem.Allocator,
     strings: *utils.StringInterner,
-    prgm: *ast.Prgm,
+    prgm: *const ast.Prgm,
 ) Error!ir.Prgm {
     const func_def = try utils.create(
         ir.FuncDef,
@@ -25,6 +25,7 @@ fn func_def_emit_ir(
     func_def: *ast.FuncDef,
 ) Error!ir.FuncDef {
     const name = try strings.get_or_put(alloc, func_def.name);
+    _ = name;
 
     var instrs: std.ArrayListUnmanaged(ir.Instr) = .empty;
 
@@ -33,9 +34,13 @@ fn func_def_emit_ir(
         .strings = strings,
         .instrs = &instrs,
     };
-    try stmt_emit_ir(bp, func_def.body);
+    _ = bp;
 
-    return .{ .name = name.string, .instrs = instrs };
+    if (true) return error.ToDo;
+
+    // try stmt_emit_ir(bp, func_def.body);
+
+    // return .{ .name = name.string, .instrs = instrs };
 }
 
 fn stmt_emit_ir(
@@ -229,4 +234,4 @@ const Boilerplate = struct {
 };
 
 const Error =
-    std.mem.Allocator.Error || std.fmt.BufPrintError;
+    std.mem.Allocator.Error || std.fmt.BufPrintError || error{ToDo};
