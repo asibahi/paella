@@ -71,7 +71,7 @@ pub const Decl = struct {
 
         try writer.print("int {s}", .{self.name});
         if (self.expr) |e|
-            try writer.print(" = {}", .{e});
+            try writer.print(" <- {}", .{e});
         try writer.writeAll(";");
     }
 };
@@ -133,7 +133,7 @@ pub const Expr = union(enum) {
         switch (self) {
             .constant => |c| try writer.print("{d}", .{c}),
             .@"var" => |s| try writer.print("{s}", .{s}),
-            .assignment => |b| try writer.print("{} = {}", b),
+            .assignment => |b| try writer.print("{} <- {}", b),
             // S-Expr
             .unop_neg => |e| try writer.print("(- {})", .{e}),
             .unop_not => |e| try writer.print("(~ {})", .{e}),

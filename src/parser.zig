@@ -95,19 +95,16 @@ fn parse_expr(
     min_prec: u8,
 ) Error!ast.Expr {
     var lhs = try parse_factor(arena, tokens);
-    const lhs_ptr = try utils.create(ast.Expr, arena, lhs);
 
     var next_token = tokens.next() orelse
         return error.SyntaxError;
     defer tokens.put_back(next_token);
 
-    while (next_token.tag.binop_precedence()) |r| : ({
-        next_token = tokens.next() orelse
-            return error.SyntaxError;
-    }) {
+    while (next_token.tag.binop_precedence()) |r| {
         const prec, const left = r;
         if (prec < min_prec) break;
 
+        const lhs_ptr = try utils.create(ast.Expr, arena, lhs);
         const rhs = try parse_expr(arena, tokens, prec + left);
         const rhs_ptr = try utils.create(ast.Expr, arena, rhs);
 
@@ -132,6 +129,9 @@ fn parse_expr(
 
             else => unreachable,
         };
+
+        next_token = tokens.next() orelse
+            return error.SyntaxError;
     }
 
     return lhs;
@@ -207,26 +207,37 @@ const Error =
     };
 
 test "precedence" {
+    try testing_prec("3 * 4 + 5", "(+ (* 3 4) 5)", .binop_add);
+    try testing_prec(
+        "4 + 3 && -17 * 4 < 5",
+        "(&& (+ 4 3) (< (* (- 17) 4) 5))",
+        .binop_and,
+    );
+    try testing_prec(
+        "c = a / 6 + !b",
+        "c <- (+ (/ a 6) (! b))",
+        .assignment,
+    );
+    try testing_prec(
+        "c * 2 == a - 1431655762",
+        "(== (* c 2) (- a 1431655762))",
+        .binop_eql,
+    );
+}
+
+fn testing_prec(
+    comptime src: [:0]const u8,
+    comptime sexpr: []const u8,
+    comptime expected: @typeInfo(ast.Expr).@"union".tag_type.?,
+) !void {
     const t = std.testing;
 
-    var a_a = std.heap.ArenaAllocator.init(t.allocator);
-    defer a_a.deinit();
-    const a = a_a.allocator();
+    var a = std.heap.ArenaAllocator.init(t.allocator);
+    defer a.deinit();
 
-    {
-        const src = "3 * 4 + 5;";
-        var tokens = lexer.Tokenizer.init(src);
-        const result = try parse_expr(a, &tokens, 0);
+    var tokens = lexer.Tokenizer.init(src ++ ";");
+    const result = try parse_expr(a.allocator(), &tokens, 0);
 
-        try t.expect(result.* == .binop_add);
-        try t.expectFmt("(+ (* 3 4) 5)", "{}", .{result});
-    }
-    {
-        const src = "4 + 3 && -17 * 4 < 5;";
-        var tokens = lexer.Tokenizer.init(src);
-        const result = try parse_expr(a, &tokens, 0);
-
-        try t.expect(result.* == .binop_and);
-        try t.expectFmt("(&& (+ 4 3) (< (* (- 17) 4) 5))", "{}", .{result});
-    }
+    try t.expect(result == expected);
+    try t.expectFmt(sexpr, "{}", .{result});
 }
