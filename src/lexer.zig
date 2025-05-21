@@ -55,26 +55,26 @@ pub const Token = struct {
         identifier, // useful for state for now
         invalid,
 
-        pub fn binop_precedence(self: @This()) ?struct { u8, u8 } {
+        pub fn binop_precedence(self: @This()) ?struct { u8, bool } {
             return switch (self) {
                 .asterisk, // *
                 .f_slash, // /
                 .percent, // %
-                => .{ 50, 1 },
+                => .{ 50, true },
                 .hyphen, // -
                 .plus, // +
-                => .{ 45, 1 },
+                => .{ 45, true },
                 .lesser_than,
                 .lesser_equals,
                 .greater_than,
                 .greater_equals,
-                => .{ 35, 1 },
+                => .{ 35, true },
                 .double_equals,
                 .bang_equals,
-                => .{ 30, 1 },
-                .double_ambersand => .{ 10, 1 },
-                .double_pipe => .{ 5, 1 },
-                .equals => .{ 1, 0 },
+                => .{ 30, true },
+                .double_ambersand => .{ 10, true },
+                .double_pipe => .{ 5, true },
+                .equals => .{ 1, false },
                 else => null,
             };
         }

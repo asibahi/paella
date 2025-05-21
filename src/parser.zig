@@ -106,7 +106,7 @@ fn parse_expr(
 
         const lhs_ptr = try utils.create(ast.Expr, arena, lhs);
 
-        const rhs = try parse_expr(arena, tokens, prec + left);
+        const rhs = try parse_expr(arena, tokens, if (left) prec + 1 else prec);
         const rhs_ptr = try utils.create(ast.Expr, arena, rhs);
 
         const bin_op: ast.Expr.BinOp = .{ lhs_ptr, rhs_ptr };
