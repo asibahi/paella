@@ -57,10 +57,10 @@ fn parse_block_item(
             const new_token = tokens.next() orelse
                 return error.NotEnoughJunk;
 
-            const expr: ?*ast.Expr = switch (new_token.tag) {
+            const init: ?*ast.Expr = switch (new_token.tag) {
                 .equals => ret: {
-                    const res = try parse_expr(arena, tokens, 0);
-                    const expr_ptr = try utils.create(ast.Expr, arena, res);
+                    const expr = try parse_expr(arena, tokens, 0);
+                    const expr_ptr = try utils.create(ast.Expr, arena, expr);
 
                     try expect(.semicolon, tokens);
                     break :ret expr_ptr;
@@ -69,7 +69,7 @@ fn parse_block_item(
                 else => return error.SyntaxError,
             };
 
-            return .decl(.{ .name = name, .expr = expr });
+            return .decl(.{ .name = name, .init = init });
         },
         // statements
         .semicolon => return .stmt(.null),

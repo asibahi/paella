@@ -6,6 +6,7 @@ const lexer = @import("lexer.zig");
 const parser = @import("parser.zig");
 const ir = @import("ir_gen.zig");
 const asm_gen = @import("asm_gen.zig");
+const sema = @import("sema.zig");
 
 pub fn main() !void {
     var debug_allocator = std.heap.DebugAllocator(.{
@@ -81,9 +82,17 @@ pub fn run(
             const arena = arena_allocator.allocator();
             defer arena_allocator.deinit();
 
-            const ast = try parser.parse_prgm(arena, &tokenizer);
+            var ast = try parser.parse_prgm(arena, &tokenizer);
 
             if (args.mode == .parse) {
+                if (bi.mode == .Debug)
+                    std.debug.print("{}\n", .{ast});
+                return;
+            }
+
+            try sema.resolve_prgm(gpa, &strings, &ast);
+
+            if (args.mode == .validate) {
                 if (bi.mode == .Debug)
                     std.debug.print("{}\n", .{ast});
                 return;
@@ -147,6 +156,7 @@ pub const Args = struct {
 pub const Mode = enum {
     lex,
     parse,
+    validate,
     tacky,
     codegen,
     compile, // default

@@ -63,11 +63,11 @@ pub const StringInterner = struct {
 
     pub fn get_or_put(
         self: *StringInterner,
-        allocator: std.mem.Allocator,
+        gpa: std.mem.Allocator,
         string: []const u8,
     ) std.mem.Allocator.Error!GetOrPutResult {
-        try self.bytes.ensureUnusedCapacity(allocator, string.len + 1);
-        try self.map.ensureUnusedCapacityContext(allocator, 1, .{ .bytes = &self.bytes });
+        try self.bytes.ensureUnusedCapacity(gpa, string.len + 1);
+        try self.map.ensureUnusedCapacityContext(gpa, 1, .{ .bytes = &self.bytes });
 
         const adapter: std.hash_map.StringIndexAdapter = .{ .bytes = &self.bytes };
         const gop = self.map.getOrPutAssumeCapacityAdapted(string, adapter);
@@ -83,5 +83,28 @@ pub const StringInterner = struct {
         gop.key_ptr.* = new_id;
 
         return .init(self, new_id);
+    }
+
+    pub fn make_temporary(
+        self: *StringInterner,
+        gpa: std.mem.Allocator,
+        prefix: []const u8,
+    ) ![:0]const u8 {
+        // zig static variables
+        const static = struct {
+            var counter: usize = 0;
+        };
+
+        var buf: [64]u8 = undefined;
+        const name_buf = try std.fmt.bufPrint(
+            &buf,
+            "{s}.{}",
+            .{ (if (prefix.len == 0) "tmp" else prefix), static.counter },
+        );
+
+        const name = try self.get_or_put(gpa, name_buf);
+        static.counter += 1;
+
+        return name.string;
     }
 };

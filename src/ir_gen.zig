@@ -189,22 +189,7 @@ const Boilerplate = struct {
         self: @This(),
         comptime prefix: []const u8,
     ) Error![:0]const u8 {
-        // zig static variables
-        const static = struct {
-            var counter: usize = 0;
-        };
-
-        var buf: [16]u8 = undefined;
-        const name_buf = try std.fmt.bufPrint(
-            &buf,
-            (if (prefix.len == 0) "tmp" else prefix) ++ ".{}",
-            .{static.counter},
-        );
-
-        const name = try self.strings.get_or_put(self.alloc, name_buf);
-        static.counter += 1;
-
-        return name.string;
+        return try self.strings.make_temporary(self.alloc, prefix);
     }
 
     fn unary(

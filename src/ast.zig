@@ -66,7 +66,7 @@ pub const BlockItem = union(enum) {
 
 pub const Decl = struct {
     name: []const u8,
-    expr: ?*Expr,
+    init: ?*Expr,
 
     pub fn format(
         self: @This(),
@@ -78,7 +78,7 @@ pub const Decl = struct {
         try writer.writeByteNTimes('\t', w);
 
         try writer.print("int {s}", .{self.name});
-        if (self.expr) |e|
+        if (self.init) |e|
             try writer.print(" <- {}", .{e});
         try writer.writeAll(";");
     }
