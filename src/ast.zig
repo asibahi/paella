@@ -54,6 +54,14 @@ pub const BlockItem = union(enum) {
             inline else => |i| try i.format(fmt, options, writer),
         }
     }
+
+    pub inline fn stmt(s: Stmt) BlockItem {
+        return .{ .S = s };
+    }
+
+    pub inline fn decl(d: Decl) BlockItem {
+        return .{ .D = d };
+    }
 };
 
 pub const Decl = struct {

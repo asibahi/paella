@@ -39,7 +39,7 @@ fn parse_func_def(
 
         const item = try parse_block_item(arena, tokens);
         try body.append(arena, item);
-    } else return error.SyntaxError;
+    } else return error.NotEnoughJunk;
 
     return .{ .name = name, .body = body };
 }
@@ -48,14 +48,14 @@ fn parse_block_item(
     arena: std.mem.Allocator,
     tokens: *lexer.Tokenizer,
 ) Error!ast.BlockItem {
-    const next_token = tokens.next() orelse
-        return error.SyntaxError;
+    const current = tokens.next() orelse
+        return error.NotEnoughJunk;
 
-    switch (next_token.tag) {
+    switch (current.tag) {
         .type_int => {
             const name = try expect(.identifier, tokens);
             const new_token = tokens.next() orelse
-                return error.SyntaxError;
+                return error.NotEnoughJunk;
 
             const expr: ?*ast.Expr = switch (new_token.tag) {
                 .equals => ret: {
@@ -69,22 +69,22 @@ fn parse_block_item(
                 else => return error.SyntaxError,
             };
 
-            return .{ .D = .{ .name = name, .expr = expr } };
+            return .decl(.{ .name = name, .expr = expr });
         },
         // statements
-        .semicolon => return .{ .S = .null },
+        .semicolon => return .stmt(.null),
         .keyword_return => {
             const expr = try parse_expr(arena, tokens, 0);
             const expr_ptr = try utils.create(ast.Expr, arena, expr);
             try expect(.semicolon, tokens);
-            return .{ .S = .{ .@"return" = expr_ptr } };
+            return .stmt(.{ .@"return" = expr_ptr });
         },
         else => {
-            tokens.put_back(next_token);
+            tokens.put_back(current);
             const expr = try parse_expr(arena, tokens, 0);
             const expr_ptr = try utils.create(ast.Expr, arena, expr);
             try expect(.semicolon, tokens);
-            return .{ .S = .{ .expr = expr_ptr } };
+            return .stmt(.{ .expr = expr_ptr });
         },
     }
 }
@@ -96,20 +96,21 @@ fn parse_expr(
 ) Error!ast.Expr {
     var lhs = try parse_factor(arena, tokens);
 
-    var next_token = tokens.next() orelse
-        return error.SyntaxError;
-    defer tokens.put_back(next_token);
+    var current = tokens.next() orelse
+        return error.NotEnoughJunk;
+    defer tokens.put_back(current);
 
-    while (next_token.tag.binop_precedence()) |r| {
+    while (current.tag.binop_precedence()) |r| {
         const prec, const left = r;
         if (prec < min_prec) break;
 
         const lhs_ptr = try utils.create(ast.Expr, arena, lhs);
+
         const rhs = try parse_expr(arena, tokens, prec + left);
         const rhs_ptr = try utils.create(ast.Expr, arena, rhs);
 
         const bin_op: ast.Expr.BinOp = .{ lhs_ptr, rhs_ptr };
-        lhs = switch (next_token.tag) {
+        lhs = switch (current.tag) {
             .plus => .{ .binop_add = bin_op },
             .hyphen => .{ .binop_sub = bin_op },
             .asterisk => .{ .binop_mul = bin_op },
@@ -130,8 +131,8 @@ fn parse_expr(
             else => unreachable,
         };
 
-        next_token = tokens.next() orelse
-            return error.SyntaxError;
+        current = tokens.next() orelse
+            return error.NotEnoughJunk;
     }
 
     return lhs;
@@ -142,7 +143,7 @@ fn parse_factor(
     tokens: *lexer.Tokenizer,
 ) Error!ast.Expr {
     const current = tokens.next() orelse
-        return error.SyntaxError;
+        return error.NotEnoughJunk;
 
     switch (current.tag) {
         .identifier => return .{
@@ -181,14 +182,15 @@ inline fn expect(
     comptime expected: lexer.Token.Tag,
     tokens: *lexer.Tokenizer,
 ) Error!ExpectResult(expected) {
-    if (tokens.next()) |actual| {
-        if (actual.tag != expected)
-            return error.SyntaxError;
-        switch (expected) {
-            .identifier => return tokens.buffer[actual.loc.start..actual.loc.end],
-            else => {},
-        }
-    } else return error.SyntaxError;
+    const actual = tokens.next() orelse
+        return error.NotEnoughJunk;
+    if (actual.tag != expected)
+        return error.SyntaxError;
+
+    switch (expected) {
+        .identifier => return tokens.buffer[actual.loc.start..actual.loc.end],
+        else => {},
+    }
 }
 
 fn ExpectResult(comptime expected: lexer.Token.Tag) type {
@@ -204,6 +206,7 @@ const Error =
         SyntaxError,
         InvalidInt,
         ExtraJunk,
+        NotEnoughJunk,
     };
 
 test "precedence" {
