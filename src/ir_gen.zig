@@ -22,11 +22,9 @@ pub fn prgm_emit_it(
 fn func_def_emit_ir(
     alloc: std.mem.Allocator,
     strings: *utils.StringInterner,
-    func_def: *ast.FuncDef,
+    func_def: *const ast.FuncDef,
 ) Error!ir.FuncDef {
     const name = try strings.get_or_put(alloc, func_def.name);
-    _ = name;
-
     var instrs: std.ArrayListUnmanaged(ir.Instr) = .empty;
 
     const bp: Boilerplate = .{
@@ -34,32 +32,57 @@ fn func_def_emit_ir(
         .strings = strings,
         .instrs = &instrs,
     };
-    _ = bp;
 
-    if (true) return error.ToDo;
+    var iter = func_def.body.constIterator(0);
+    while (iter.next()) |item| switch (item.*) {
+        .S => |*s| try stmt_emit_ir(bp, s),
+        .D => |*d| try decl_emit_ir(bp, d),
+    };
 
-    // try stmt_emit_ir(bp, func_def.body);
+    const last = instrs.getLastOrNull();
+    if (last == null or last.? != .ret)
+        try instrs.append(alloc, .{ .ret = .{ .constant = 0 } });
 
-    // return .{ .name = name.string, .instrs = instrs };
+    return .{ .name = name.string, .instrs = instrs };
+}
+
+fn decl_emit_ir(
+    bp: Boilerplate,
+    decl: *const ast.Decl,
+) Error!void {
+    if (decl.init) |e| {
+        const src = try expr_emit_ir(bp, e);
+        try bp.append(.{ .copy = .init(src, .{ .variable = @ptrCast(decl.name) }) });
+    }
 }
 
 fn stmt_emit_ir(
     bp: Boilerplate,
-    stmt: *ast.Stmt,
+    stmt: *const ast.Stmt,
 ) Error!void {
     switch (stmt.*) {
+        .null => {},
         .@"return" => |e| try bp.append(.{
             .ret = try expr_emit_ir(bp, e),
         }),
+        .expr => |e| _ = try expr_emit_ir(bp, e),
     }
 }
 
 fn expr_emit_ir(
     bp: Boilerplate,
-    expr: *ast.Expr,
+    expr: *const ast.Expr,
 ) Error!ir.Value {
     switch (expr.*) {
         .constant => |c| return .{ .constant = c },
+        .@"var" => |v| return .{ .variable = @ptrCast(v) },
+        .assignment => |b| {
+            // bizarro order
+            const dst = try expr_emit_ir(bp, b.@"0");
+            const src = try expr_emit_ir(bp, b.@"1");
+            try bp.append(.{ .copy = .init(src, dst) });
+            return dst;
+        },
         .unop_neg => |e| {
             const unary = try bp.unary(e, "neg");
             try bp.append(.{ .unop_neg = unary });
