@@ -10,7 +10,6 @@ pub fn prgm_to_asm(
     prgm: ir.Prgm,
 ) !assembly.Prgm {
     const func_def = try utils.create(
-        assembly.FuncDef,
         alloc,
         try func_def_to_asm(alloc, prgm.func_def.*),
     );

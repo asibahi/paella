@@ -9,7 +9,7 @@ pub fn parse_prgm(
     tokens: *lexer.Tokenizer,
 ) Error!ast.Prgm {
     const func_def = try parse_func_def(arena, tokens);
-    const func_ptr = try utils.create(ast.FuncDef, arena, func_def);
+    const func_ptr = try utils.create(arena, func_def);
 
     // now that we are done, check the tokenizer is emoty.
     if (tokens.next()) |_| return error.ExtraJunk;
@@ -60,7 +60,7 @@ fn parse_block_item(
             const init: ?*ast.Expr = switch (new_token.tag) {
                 .equals => ret: {
                     const expr = try parse_expr(arena, tokens, 0);
-                    const expr_ptr = try utils.create(ast.Expr, arena, expr);
+                    const expr_ptr = try utils.create(arena, expr);
 
                     try expect(.semicolon, tokens);
                     break :ret expr_ptr;
@@ -90,24 +90,24 @@ fn parse_stmt(
         .semicolon => return .null,
         .keyword_return => {
             const expr = try parse_expr(arena, tokens, 0);
-            const expr_ptr = try utils.create(ast.Expr, arena, expr);
+            const expr_ptr = try utils.create(arena, expr);
             try expect(.semicolon, tokens);
             return .{ .@"return" = expr_ptr };
         },
         .keyword_if => {
             try expect(.l_paren, tokens);
             const cond = try parse_expr(arena, tokens, 0);
-            const cond_ptr = try utils.create(ast.Expr, arena, cond);
+            const cond_ptr = try utils.create(arena, cond);
             try expect(.r_paren, tokens);
 
             const then = try parse_stmt(arena, tokens);
-            const then_ptr = try utils.create(ast.Stmt, arena, then);
+            const then_ptr = try utils.create(arena, then);
 
             const peek = tokens.next() orelse
                 return error.NotEnoughJunk;
             const else_ptr: ?*ast.Stmt = if (peek.tag == .keyword_else) s: {
                 const e = try parse_stmt(arena, tokens);
-                break :s try utils.create(ast.Stmt, arena, e);
+                break :s try utils.create(arena, e);
             } else n: {
                 tokens.put_back(peek);
                 break :n null;
@@ -122,7 +122,7 @@ fn parse_stmt(
         else => {
             tokens.put_back(current);
             const expr = try parse_expr(arena, tokens, 0);
-            const expr_ptr = try utils.create(ast.Expr, arena, expr);
+            const expr_ptr = try utils.create(arena, expr);
             try expect(.semicolon, tokens);
             return .{ .expr = expr_ptr };
         },
@@ -144,16 +144,16 @@ fn parse_expr(
         const prec, const left = r;
         if (prec < min_prec) break;
 
-        const lhs_ptr = try utils.create(ast.Expr, arena, lhs);
+        const lhs_ptr = try utils.create(arena, lhs);
         const then_ptr: ?*ast.Expr = if (current.tag == .query) t: {
             const then = try parse_expr(arena, tokens, 0);
             try expect(.colon, tokens);
 
-            break :t try utils.create(ast.Expr, arena, then);
+            break :t try utils.create(arena, then);
         } else null;
 
         const rhs = try parse_expr(arena, tokens, if (left) prec + 1 else prec);
-        const rhs_ptr = try utils.create(ast.Expr, arena, rhs);
+        const rhs_ptr = try utils.create(arena, rhs);
 
         const bin_op: ast.Expr.BinOp = .{ lhs_ptr, rhs_ptr };
         lhs = switch (current.tag) {
@@ -206,15 +206,15 @@ fn parse_factor(
         },
         .hyphen => {
             const inner_exp = try parse_factor(arena, tokens);
-            return .{ .unop_neg = try utils.create(ast.Expr, arena, inner_exp) };
+            return .{ .unop_neg = try utils.create(arena, inner_exp) };
         },
         .tilde => {
             const inner_exp = try parse_factor(arena, tokens);
-            return .{ .unop_not = try utils.create(ast.Expr, arena, inner_exp) };
+            return .{ .unop_not = try utils.create(arena, inner_exp) };
         },
         .bang => {
             const inner_exp = try parse_factor(arena, tokens);
-            return .{ .unop_lnot = try utils.create(ast.Expr, arena, inner_exp) };
+            return .{ .unop_lnot = try utils.create(arena, inner_exp) };
         },
         .l_paren => {
             const inner_exp = try parse_expr(arena, tokens, 0);

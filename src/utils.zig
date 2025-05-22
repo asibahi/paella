@@ -1,11 +1,10 @@
 const std = @import("std");
 
 pub fn create(
-    T: type,
     alloc: std.mem.Allocator,
-    value: T,
-) std.mem.Allocator.Error!*T {
-    const ret = try alloc.create(T);
+    value: anytype,
+) std.mem.Allocator.Error!*@TypeOf(value) {
+    const ret = try alloc.create(@TypeOf(value));
     ret.* = value;
     return ret;
 }

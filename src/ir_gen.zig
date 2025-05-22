@@ -11,7 +11,6 @@ pub fn prgm_emit_it(
     prgm: *const ast.Prgm,
 ) Error!ir.Prgm {
     const func_def = try utils.create(
-        ir.FuncDef,
         alloc,
         try func_def_emit_ir(alloc, strings, prgm.func_def),
     );
