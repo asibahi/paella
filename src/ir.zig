@@ -22,6 +22,7 @@ pub const Prgm = struct {
             self.func_def,
             (options.width orelse 0) + 1,
         });
+        try writer.writeByteNTimes('=', 32);
     }
 };
 

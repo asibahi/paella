@@ -19,6 +19,10 @@ pub fn build(b: *std.Build) !void {
         .name = "paella",
         .root_module = exe_mod,
     });
+
+    const fmt_step = b.addFmt(.{ .paths = &.{"./"} });
+    exe.step.dependOn(&fmt_step.step);
+
     b.installArtifact(exe);
 
     { // `zig build run` command
@@ -53,7 +57,7 @@ pub fn build(b: *std.Build) !void {
             try std.mem.join(
                 b.allocator,
                 " ",
-                b.args orelse &.{""},
+                b.args orelse &.{},
             ),
         });
 
@@ -65,4 +69,51 @@ pub fn build(b: *std.Build) !void {
         test_command.step.dependOn(b.getInstallStep());
         test_step.dependOn(&test_command.step);
     }
+    { // `zig build eye` command
+        const eye_step = b.step("eye", "Eye test all the files in a given directory");
+
+        if (b.option(std.Build.LazyPath, "folder", "Path to eye")) |lazy|
+            try walk_tree(b, exe, eye_step, lazy)
+        else
+            eye_step.dependOn(&b.addFail("folder needed for eye").step);
+    }
+}
+
+fn walk_tree(
+    b: *std.Build,
+    exe: *std.Build.Step.Compile,
+    eye_step: *std.Build.Step,
+    lazy: std.Build.LazyPath,
+) !void {
+    const path = lazy.getPath3(b, null);
+    const dir = try path.openDir("", .{ .iterate = true });
+    var walker = dir.iterate();
+
+    var prev_run_cmd: ?*std.Build.Step.Run = null;
+    while (try walker.next()) |entry| if (entry.kind == .file and
+        std.mem.endsWith(u8, entry.name, ".c"))
+    {
+        const file = entry.name;
+
+        const bat = b.addSystemCommand(&.{ "bat", file });
+        bat.addArg("--paging=never");
+        bat.setCwd(lazy);
+        bat.stdio = .inherit;
+
+        if (prev_run_cmd) |c|
+            bat.step.dependOn(&c.step);
+
+        const run_cmd = b.addRunArtifact(exe);
+        run_cmd.setCwd(lazy);
+        run_cmd.addArg(file);
+        run_cmd.addArgs(b.args orelse &.{});
+        run_cmd.stdio = .inherit;
+
+        run_cmd.step.dependOn(b.getInstallStep());
+        run_cmd.step.dependOn(&bat.step);
+
+        prev_run_cmd = run_cmd;
+    };
+
+    eye_step.dependOn(&prev_run_cmd.?.step);
 }

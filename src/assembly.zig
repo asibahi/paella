@@ -40,6 +40,7 @@ pub const Prgm = struct {
                 (options.width orelse 0) + 1,
             });
         }
+        try writer.writeByteNTimes('=', 32);
     }
 };
 
