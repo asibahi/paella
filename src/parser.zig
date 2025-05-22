@@ -71,20 +71,60 @@ fn parse_block_item(
 
             return .decl(.{ .name = name, .init = init });
         },
-        // statements
-        .semicolon => return .stmt(.null),
+        else => {
+            tokens.put_back(current);
+            const stmt = try parse_stmt(arena, tokens);
+
+            return .stmt(stmt);
+        },
+    }
+}
+
+fn parse_stmt(
+    arena: std.mem.Allocator,
+    tokens: *lexer.Tokenizer,
+) Error!ast.Stmt {
+    const current = tokens.next() orelse
+        return error.NotEnoughJunk;
+    switch (current.tag) {
+        .semicolon => return .null,
         .keyword_return => {
             const expr = try parse_expr(arena, tokens, 0);
             const expr_ptr = try utils.create(ast.Expr, arena, expr);
             try expect(.semicolon, tokens);
-            return .stmt(.{ .@"return" = expr_ptr });
+            return .{ .@"return" = expr_ptr };
+        },
+        .keyword_if => {
+            try expect(.l_paren, tokens);
+            const cond = try parse_expr(arena, tokens, 0);
+            const cond_ptr = try utils.create(ast.Expr, arena, cond);
+            try expect(.r_paren, tokens);
+
+            const then = try parse_stmt(arena, tokens);
+            const then_ptr = try utils.create(ast.Stmt, arena, then);
+
+            const peek = tokens.next() orelse
+                return error.NotEnoughJunk;
+            const else_ptr: ?*ast.Stmt = if (peek.tag == .keyword_else) s: {
+                const e = try parse_stmt(arena, tokens);
+                break :s try utils.create(ast.Stmt, arena, e);
+            } else n: {
+                tokens.put_back(peek);
+                break :n null;
+            };
+
+            return .{ .@"if" = .{
+                .cond = cond_ptr,
+                .then = then_ptr,
+                .@"else" = else_ptr,
+            } };
         },
         else => {
             tokens.put_back(current);
             const expr = try parse_expr(arena, tokens, 0);
             const expr_ptr = try utils.create(ast.Expr, arena, expr);
             try expect(.semicolon, tokens);
-            return .stmt(.{ .expr = expr_ptr });
+            return .{ .expr = expr_ptr };
         },
     }
 }
@@ -105,6 +145,12 @@ fn parse_expr(
         if (prec < min_prec) break;
 
         const lhs_ptr = try utils.create(ast.Expr, arena, lhs);
+        const then_ptr: ?*ast.Expr = if (current.tag == .query) t: {
+            const then = try parse_expr(arena, tokens, 0);
+            try expect(.colon, tokens);
+
+            break :t try utils.create(ast.Expr, arena, then);
+        } else null;
 
         const rhs = try parse_expr(arena, tokens, if (left) prec + 1 else prec);
         const rhs_ptr = try utils.create(ast.Expr, arena, rhs);
@@ -127,6 +173,8 @@ fn parse_expr(
             .greater_than => .{ .binop_gt = bin_op },
             .lesser_equals => .{ .binop_le = bin_op },
             .greater_equals => .{ .binop_ge = bin_op },
+
+            .query => .{ .ternary = .{ lhs_ptr, then_ptr.?, rhs_ptr } },
 
             else => unreachable,
         };

@@ -39,9 +39,7 @@ fn func_def_emit_ir(
         .D => |*d| try decl_emit_ir(bp, d),
     };
 
-    const last = instrs.getLastOrNull();
-    if (last == null or last.? != .ret)
-        try instrs.append(alloc, .{ .ret = .{ .constant = 0 } });
+    try instrs.append(alloc, .{ .ret = .{ .constant = 0 } });
 
     return .{ .name = name.string, .instrs = instrs };
 }
@@ -66,6 +64,7 @@ fn stmt_emit_ir(
             .ret = try expr_emit_ir(bp, e),
         }),
         .expr => |e| _ = try expr_emit_ir(bp, e),
+        else => @panic("todo"),
     }
 }
 
@@ -192,7 +191,7 @@ fn expr_emit_ir(
             return dst;
         },
 
-        // else => @panic("todo"),
+        else => @panic("todo"),
     }
 }
 
@@ -241,5 +240,4 @@ const Boilerplate = struct {
     }
 };
 
-const Error =
-    std.mem.Allocator.Error || std.fmt.BufPrintError || error{ToDo};
+const Error = std.mem.Allocator.Error || std.fmt.BufPrintError;

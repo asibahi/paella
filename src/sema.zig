@@ -49,8 +49,14 @@ fn resolve_stmt(
     stmt: *ast.Stmt,
 ) Error!void {
     switch (stmt.*) {
-        .@"return", .expr => |expr| try resolve_expr(bp, expr),
         .null => {},
+        .@"return", .expr => |expr| try resolve_expr(bp, expr),
+        .@"if" => |i| {
+            try resolve_expr(bp, i.cond);
+            try resolve_stmt(bp, i.then);
+            if (i.@"else") |e|
+                try resolve_stmt(bp, e);
+        },
     }
 }
 
@@ -89,6 +95,11 @@ fn resolve_expr(
         => |b| {
             try resolve_expr(bp, b.@"0");
             try resolve_expr(bp, b.@"1");
+        },
+        .ternary => |t| {
+            try resolve_expr(bp, t.@"0");
+            try resolve_expr(bp, t.@"1");
+            try resolve_expr(bp, t.@"2");
         },
     }
 }

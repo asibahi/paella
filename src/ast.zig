@@ -87,6 +87,7 @@ pub const Decl = struct {
 pub const Stmt = union(enum) {
     @"return": *Expr,
     expr: *Expr,
+    @"if": struct { cond: *Expr, then: *Stmt, @"else": ?*Stmt },
     null: void,
 
     pub fn format(
@@ -101,6 +102,16 @@ pub const Stmt = union(enum) {
         switch (self) {
             .@"return" => |expr| try writer.print("RETURN {}", .{expr}),
             .expr => |expr| try writer.print("{};", .{expr}),
+            .@"if" => |cs| {
+                try writer.print("IF {}\n", .{cs.cond});
+                try writer.print("{:[1]}", .{ cs.then, w + 1 });
+                if (cs.@"else") |es| {
+                    try writer.writeByte('\n');
+                    try writer.writeByteNTimes('\t', w);
+                    try writer.writeAll("ELSE\n");
+                    try writer.print("{:[1]}", .{ es, w + 1 });
+                }
+            },
             .null => try writer.print(";", .{}),
         }
     }
@@ -129,6 +140,8 @@ pub const Expr = union(enum) {
     binop_gt: BinOp,
     binop_le: BinOp,
     binop_ge: BinOp,
+
+    ternary: struct { *Expr, *Expr, *Expr },
 
     pub const BinOp = struct { *Expr, *Expr };
 
@@ -161,6 +174,8 @@ pub const Expr = union(enum) {
             .binop_gt => |b| try writer.print("(> {} {})", b),
             .binop_le => |b| try writer.print("(<= {} {})", b),
             .binop_ge => |b| try writer.print("(>= {} {})", b),
+
+            .ternary => |t| try writer.print("(?: {} {} {})", t),
         }
     }
 };

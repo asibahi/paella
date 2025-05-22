@@ -10,9 +10,13 @@ pub const Token = struct {
     };
 
     pub const keywords = std.StaticStringMap(Tag).initComptime(.{
-        .{ "return", .keyword_return },
         .{ "int", .type_int },
+        .{ "return", .keyword_return },
         .{ "void", .keyword_void },
+
+        // new lines :
+        .{ "if", .keyword_if },
+        .{ "else", .keyword_else },
     });
 
     pub fn getKeyword(bytes: []const u8) ?Tag {
@@ -45,10 +49,15 @@ pub const Token = struct {
         lesser_equals, // <=
         greater_equals, // >=
 
+        query, // ?
+        colon, // :
+
         type_int,
 
         keyword_void,
         keyword_return,
+        keyword_if,
+        keyword_else,
 
         number_literal,
 
@@ -74,6 +83,7 @@ pub const Token = struct {
                 => .{ 30, true },
                 .double_ambersand => .{ 10, true },
                 .double_pipe => .{ 5, true },
+                .query => .{ 3, false },
                 .equals => .{ 1, false },
                 else => null,
             };
@@ -185,6 +195,14 @@ pub const Tokenizer = struct {
                 '=' => continue :state .equals,
                 '<' => continue :state .lesser_than,
                 '>' => continue :state .greater_than,
+                '?' => {
+                    result.tag = .query;
+                    self.index += 1;
+                },
+                ':' => {
+                    result.tag = .colon;
+                    self.index += 1;
+                },
                 else => result.tag = .invalid,
             },
 
