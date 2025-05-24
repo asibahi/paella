@@ -22,7 +22,7 @@ fn resolve_func_def(
     bp: Boilerplate,
     func_def: *ast.FuncDef,
 ) Error!void {
-    var iter = func_def.body.iterator(0);
+    var iter = func_def.block.body.iterator(0);
     while (iter.next()) |item| switch (item.*) {
         .S => |*s| try resolve_stmt(bp, s),
         .D => |*d| try resolve_decl(bp, d),
@@ -57,6 +57,7 @@ fn resolve_stmt(
             if (i.@"else") |e|
                 try resolve_stmt(bp, e);
         },
+        else => @panic("unimplemented"),
     }
 }
 

@@ -32,7 +32,7 @@ fn func_def_emit_ir(
         .instrs = &instrs,
     };
 
-    var iter = func_def.body.constIterator(0);
+    var iter = func_def.block.body.constIterator(0);
     while (iter.next()) |item| switch (item.*) {
         .S => |*s| try stmt_emit_ir(bp, s),
         .D => |*d| try decl_emit_ir(bp, d),
@@ -76,6 +76,7 @@ fn stmt_emit_ir(
                 try bp.append(.{ .label = end_label });
             } else try bp.append(.{ .label = else_label });
         },
+        else => @panic("todo"),
     }
 }
 

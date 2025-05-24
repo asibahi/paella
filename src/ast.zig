@@ -20,7 +20,7 @@ pub const Prgm = struct {
 
 pub const FuncDef = struct {
     name: []const u8,
-    body: std.SegmentedList(BlockItem, 0),
+    block: Block,
 
     pub fn format(
         self: @This(),
@@ -32,13 +32,17 @@ pub const FuncDef = struct {
         try writer.writeByteNTimes('\t', w);
 
         try writer.print("FUNCTION {s}\n", .{self.name});
-        var iter = self.body.constIterator(0);
+        var iter = self.block.body.constIterator(0);
         while (iter.next()) |item|
             try writer.print("{:[1]}\n", .{
                 item,
                 w + 1,
             });
     }
+};
+
+pub const Block = struct {
+    body: std.SegmentedList(BlockItem, 0),
 };
 
 pub const BlockItem = union(enum) {
@@ -89,6 +93,7 @@ pub const Stmt = union(enum) {
     @"return": *Expr,
     expr: *Expr,
     @"if": struct { cond: *Expr, then: *Stmt, @"else": ?*Stmt },
+    compound: Block,
     null: void,
 
     pub fn format(
@@ -105,12 +110,32 @@ pub const Stmt = union(enum) {
             .expr => |expr| try writer.print("{};", .{expr}),
             .@"if" => |cs| {
                 try writer.print("IF {}\n", .{cs.cond});
-                try writer.print("{:[1]}", .{ cs.then, w + 1 });
+                try writer.print("{:^[1]}", .{ cs.then, w + 1 });
                 if (cs.@"else") |es| {
                     try writer.writeByte('\n');
                     try writer.writeByteNTimes('\t', w);
                     try writer.writeAll("ELSE\n");
-                    try writer.print("{:[1]}", .{ es, w + 1 });
+                    try writer.print("{:^[1]}", .{ es, w + 1 });
+                }
+            },
+            .compound => |b| {
+                var iter = b.body.constIterator(0);
+
+                var cw: usize = undefined;
+                if (options.alignment != .center) {
+                    try writer.writeAll("DO");
+                    cw = w + 1;
+                } else {
+                    if (iter.next()) |item|
+                        try writer.print("{}", .{item});
+                    cw = w;
+                }
+
+                while (iter.next()) |item| {
+                    try writer.print("\n{:[1]}", .{
+                        item,
+                        cw,
+                    });
                 }
             },
             .null => try writer.print(";", .{}),
@@ -155,7 +180,7 @@ pub const Expr = union(enum) {
         switch (self) {
             .constant => |c| try writer.print("{d}", .{c}),
             .@"var" => |s| try writer.print("{s}", .{s}),
-            .assignment => |b| try writer.print("{} <- {}", b),
+            .assignment => |b| try writer.print("({} <- {})", b),
             // S-Expr
             .unop_neg => |e| try writer.print("(- {})", .{e}),
             .unop_not => |e| try writer.print("(~ {})", .{e}),

@@ -29,6 +29,15 @@ fn parse_func_def(
     try expect(.keyword_void, tokens);
     try expect(.r_paren, tokens);
 
+    const block = try parse_block(arena, tokens);
+
+    return .{ .name = name, .block = block };
+}
+
+fn parse_block(
+    arena: std.mem.Allocator,
+    tokens: *lexer.Tokenizer,
+) Error!ast.Block {
     try expect(.l_brace, tokens);
 
     var body: std.SegmentedList(ast.BlockItem, 0) = .{};
@@ -41,7 +50,7 @@ fn parse_func_def(
         try body.append(arena, item);
     } else return error.NotEnoughJunk;
 
-    return .{ .name = name, .body = body };
+    return .{ .body = body };
 }
 
 fn parse_block_item(
@@ -118,6 +127,12 @@ fn parse_stmt(
                 .then = then_ptr,
                 .@"else" = else_ptr,
             } };
+        },
+        .l_brace => {
+            tokens.put_back(current);
+            const block = try parse_block(arena, tokens);
+
+            return .{ .compound = block };
         },
         else => {
             tokens.put_back(current);
