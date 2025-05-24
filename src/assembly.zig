@@ -40,7 +40,7 @@ pub const Prgm = struct {
                 (options.width orelse 0) + 1,
             });
         }
-        try writer.writeByteNTimes('=', 32);
+        try writer.writeByteNTimes(';', 32); // `;` is a comment in assembly.
     }
 };
 

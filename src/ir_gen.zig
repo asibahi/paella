@@ -63,7 +63,19 @@ fn stmt_emit_ir(
             .ret = try expr_emit_ir(bp, e),
         }),
         .expr => |e| _ = try expr_emit_ir(bp, e),
-        else => @panic("todo"),
+        .@"if" => |c| {
+            const cond = try expr_emit_ir(bp, c.cond);
+            const else_label = try bp.make_temporary("else");
+            try bp.append(.{ .jump_z = .{ .cond = cond, .target = else_label } });
+            try stmt_emit_ir(bp, c.then);
+            if (c.@"else") |@"else"| {
+                const end_label = try bp.make_temporary("end");
+                try bp.append(.{ .jump = end_label });
+                try bp.append(.{ .label = else_label });
+                try stmt_emit_ir(bp, @"else");
+                try bp.append(.{ .label = end_label });
+            } else try bp.append(.{ .label = else_label });
+        },
     }
 }
 
@@ -189,8 +201,28 @@ fn expr_emit_ir(
 
             return dst;
         },
+        .ternary => |t| {
+            const else_label = try bp.make_temporary("else");
+            const end_label = try bp.make_temporary("end");
+            const dst_name = try bp.make_temporary("ter");
+            const dst: ir.Value = .{ .variable = dst_name };
 
-        else => @panic("todo"),
+            const cond = try expr_emit_ir(bp, t.@"0");
+            try bp.append(.{ .jump_z = .{ .cond = cond, .target = else_label } });
+            const then = try expr_emit_ir(bp, t.@"1");
+            try bp.append(.{ .copy = .init(then, dst) });
+
+            try bp.append(.{ .jump = end_label });
+            try bp.append(.{ .label = else_label });
+
+            const else_ = try expr_emit_ir(bp, t.@"2");
+            try bp.append(.{ .copy = .init(else_, dst) });
+
+            try bp.append(.{ .label = end_label });
+
+            return dst;
+        },
+        // else => @panic("todo"),
     }
 }
 
