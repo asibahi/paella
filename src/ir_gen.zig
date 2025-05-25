@@ -32,15 +32,21 @@ fn func_def_emit_ir(
         .instrs = &instrs,
     };
 
-    var iter = func_def.block.body.constIterator(0);
+    try block_emit_ir(bp, &func_def.block);
+    try instrs.append(alloc, .{ .ret = .{ .constant = 0 } });
+
+    return .{ .name = name.string, .instrs = instrs };
+}
+
+fn block_emit_ir(
+    bp: Boilerplate,
+    block: *const ast.Block,
+) Error!void {
+    var iter = block.body.constIterator(0);
     while (iter.next()) |item| switch (item.*) {
         .S => |*s| try stmt_emit_ir(bp, s),
         .D => |*d| try decl_emit_ir(bp, d),
     };
-
-    try instrs.append(alloc, .{ .ret = .{ .constant = 0 } });
-
-    return .{ .name = name.string, .instrs = instrs };
 }
 
 fn decl_emit_ir(
@@ -76,7 +82,8 @@ fn stmt_emit_ir(
                 try bp.append(.{ .label = end_label });
             } else try bp.append(.{ .label = else_label });
         },
-        else => @panic("todo"),
+        .compound => |b| try block_emit_ir(bp, &b),
+        // else => @panic("todo"),
     }
 }
 

@@ -7,7 +7,15 @@ pub fn resolve_prgm(
     strings: *utils.StringInterner,
     prgm: *ast.Prgm,
 ) Error!void {
-    var variable_map: std.StringHashMapUnmanaged([:0]const u8) = .empty;
+    try resolve_func_def(gpa, strings, prgm.func_def);
+}
+
+fn resolve_func_def(
+    gpa: std.mem.Allocator,
+    strings: *utils.StringInterner,
+    func_def: *ast.FuncDef,
+) Error!void {
+    var variable_map: std.StringHashMapUnmanaged(Entry) = .empty;
     defer variable_map.deinit(gpa);
 
     const bp: Boilerplate = .{
@@ -15,14 +23,14 @@ pub fn resolve_prgm(
         .strings = strings,
         .variable_map = &variable_map,
     };
-    try resolve_func_def(bp, prgm.func_def);
+    try resolve_block(bp, &func_def.block);
 }
 
-fn resolve_func_def(
+fn resolve_block(
     bp: Boilerplate,
-    func_def: *ast.FuncDef,
+    block: *ast.Block,
 ) Error!void {
-    var iter = func_def.block.body.iterator(0);
+    var iter = block.body.iterator(0);
     while (iter.next()) |item| switch (item.*) {
         .S => |*s| try resolve_stmt(bp, s),
         .D => |*d| try resolve_decl(bp, d),
@@ -33,11 +41,11 @@ fn resolve_decl(
     bp: Boilerplate,
     decl: *ast.Decl,
 ) Error!void {
-    if (bp.variable_map.contains(decl.name))
+    if (bp.variable_map.get(decl.name)) |entry| if (entry.scope == .local)
         return error.DuplicateVariableDecl;
 
     const unique_name = try bp.make_temporary(decl.name);
-    try bp.variable_map.put(bp.gpa, decl.name, unique_name);
+    try bp.variable_map.put(bp.gpa, decl.name, .{ .name = unique_name });
 
     if (decl.init) |expr|
         try resolve_expr(bp, expr);
@@ -57,7 +65,23 @@ fn resolve_stmt(
             if (i.@"else") |e|
                 try resolve_stmt(bp, e);
         },
-        else => @panic("unimplemented"),
+        .compound => |*b| {
+            var variable_map = try bp.variable_map.clone(bp.gpa);
+            defer variable_map.deinit(bp.gpa);
+
+            var iter = variable_map.valueIterator();
+            while (iter.next()) |value|
+                value.* = .{ .name = value.name, .scope = .parent };
+
+            const inner_bp: Boilerplate = .{
+                .gpa = bp.gpa,
+                .strings = bp.strings,
+                .variable_map = &variable_map,
+            };
+
+            try resolve_block(inner_bp, b);
+        },
+        // else => @panic("unimplemented"),
     }
 }
 
@@ -73,7 +97,7 @@ fn resolve_expr(
             try resolve_expr(bp, b.@"1");
         },
         .@"var" => |name| expr.* = if (bp.variable_map.get(name)) |un|
-            .{ .@"var" = un }
+            .{ .@"var" = un.name }
         else
             return error.UndeclaredVariable,
         .unop_neg,
@@ -108,7 +132,7 @@ fn resolve_expr(
 const Boilerplate = struct {
     gpa: std.mem.Allocator,
     strings: *utils.StringInterner,
-    variable_map: *std.StringHashMapUnmanaged([:0]const u8),
+    variable_map: *std.StringHashMapUnmanaged(Entry),
 
     fn make_temporary(
         self: @This(),
@@ -116,6 +140,11 @@ const Boilerplate = struct {
     ) Error![:0]const u8 {
         return try self.strings.make_temporary(self.gpa, prefix);
     }
+};
+
+const Entry = struct {
+    name: [:0]const u8,
+    scope: enum { local, parent } = .local,
 };
 
 const Error = std.mem.Allocator.Error || std.fmt.BufPrintError ||
