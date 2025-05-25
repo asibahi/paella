@@ -17,6 +17,12 @@ pub const Token = struct {
         // new lines :
         .{ "if", .keyword_if },
         .{ "else", .keyword_else },
+
+        .{ "do", .keyword_do },
+        .{ "while", .keyword_while },
+        .{ "for", .keyword_for },
+        .{ "break", .keyword_break },
+        .{ "continue", .keyword_continue },
     });
 
     pub fn getKeyword(bytes: []const u8) ?Tag {
@@ -58,6 +64,12 @@ pub const Token = struct {
         keyword_return,
         keyword_if,
         keyword_else,
+
+        keyword_do,
+        keyword_while,
+        keyword_for,
+        keyword_break,
+        keyword_continue,
 
         number_literal,
 

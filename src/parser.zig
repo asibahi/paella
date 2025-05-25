@@ -59,34 +59,36 @@ fn parse_block_item(
 ) Error!ast.BlockItem {
     const current = tokens.next() orelse
         return error.NotEnoughJunk;
+    tokens.put_back(current);
 
     switch (current.tag) {
-        .type_int => {
-            const name = try expect(.identifier, tokens);
-            const new_token = tokens.next() orelse
-                return error.NotEnoughJunk;
-
-            const init: ?*ast.Expr = switch (new_token.tag) {
-                .equals => ret: {
-                    const expr = try parse_expr(arena, tokens, 0);
-                    const expr_ptr = try utils.create(arena, expr);
-
-                    try expect(.semicolon, tokens);
-                    break :ret expr_ptr;
-                },
-                .semicolon => null,
-                else => return error.SyntaxError,
-            };
-
-            return .decl(.{ .name = name, .init = init });
-        },
-        else => {
-            tokens.put_back(current);
-            const stmt = try parse_stmt(arena, tokens);
-
-            return .stmt(stmt);
-        },
+        .type_int => return .decl(try parse_var_decl(arena, tokens)),
+        else => return .stmt(try parse_stmt(arena, tokens)),
     }
+}
+
+fn parse_var_decl(
+    arena: std.mem.Allocator,
+    tokens: *lexer.Tokenizer,
+) Error!ast.Decl {
+    try expect(.type_int, tokens);
+    const name = try expect(.identifier, tokens);
+    const new_token = tokens.next() orelse
+        return error.NotEnoughJunk;
+
+    const init: ?*ast.Expr = switch (new_token.tag) {
+        .equals => ret: {
+            const expr = try parse_expr(arena, tokens, 0);
+            const expr_ptr = try utils.create(arena, expr);
+
+            try expect(.semicolon, tokens);
+            break :ret expr_ptr;
+        },
+        .semicolon => null,
+        else => return error.SyntaxError,
+    };
+
+    return .{ .name = name, .init = init };
 }
 
 fn parse_stmt(
@@ -128,6 +130,112 @@ fn parse_stmt(
                 .@"else" = else_ptr,
             } };
         },
+
+        .keyword_break => {
+            try expect(.semicolon, tokens);
+            return .{ .@"break" = null };
+        },
+        .keyword_continue => {
+            try expect(.semicolon, tokens);
+            return .{ .@"continue" = null };
+        },
+
+        .keyword_while => {
+            try expect(.l_paren, tokens);
+            const cond = try parse_expr(arena, tokens, 0);
+            const cond_ptr = try utils.create(arena, cond);
+            try expect(.r_paren, tokens);
+
+            const body = try parse_stmt(arena, tokens);
+            const body_ptr = try utils.create(arena, body);
+
+            return .{ .@"while" = .{
+                .cond = cond_ptr,
+                .body = body_ptr,
+                .label = null,
+            } };
+        },
+        .keyword_do => {
+            const body = try parse_stmt(arena, tokens);
+            const body_ptr = try utils.create(arena, body);
+
+            try expect(.keyword_while, tokens);
+            try expect(.l_paren, tokens);
+            const cond = try parse_expr(arena, tokens, 0);
+            const cond_ptr = try utils.create(arena, cond);
+            try expect(.r_paren, tokens);
+            try expect(.semicolon, tokens);
+
+            return .{ .do_while = .{
+                .cond = cond_ptr,
+                .body = body_ptr,
+                .label = null,
+            } };
+        },
+        .keyword_for => {
+            try expect(.l_paren, tokens);
+
+            const init: ast.Stmt.For.Init = init: {
+                const new_token = tokens.next() orelse
+                    return error.NotEnoughJunk;
+                switch (new_token.tag) {
+                    .semicolon => break :init .none,
+                    .type_int => {
+                        tokens.put_back(new_token);
+                        const decl = try parse_var_decl(arena, tokens);
+                        const decl_ptr = try utils.create(arena, decl);
+                        break :init .{ .decl = decl_ptr };
+                    },
+                    else => {
+                        tokens.put_back(new_token);
+                        const expr = try parse_expr(arena, tokens, 0);
+                        const expr_ptr = try utils.create(arena, expr);
+                        try expect(.semicolon, tokens);
+                        break :init .{ .expr = expr_ptr };
+                    },
+                }
+            };
+            const cond: ?*ast.Expr = cond: {
+                const new_token = tokens.next() orelse
+                    return error.NotEnoughJunk;
+                switch (new_token.tag) {
+                    .semicolon => break :cond null,
+                    else => {
+                        tokens.put_back(new_token);
+                        const expr = try parse_expr(arena, tokens, 0);
+                        const expr_ptr = try utils.create(arena, expr);
+                        try expect(.semicolon, tokens);
+                        break :cond expr_ptr;
+                    },
+                }
+            };
+            const post: ?*ast.Expr = post: {
+                const new_token = tokens.next() orelse
+                    return error.NotEnoughJunk;
+                switch (new_token.tag) {
+                    .r_paren => break :post null,
+                    else => {
+                        tokens.put_back(new_token);
+                        const expr = try parse_expr(arena, tokens, 0);
+                        const expr_ptr = try utils.create(arena, expr);
+                        try expect(.r_paren, tokens);
+                        break :post expr_ptr;
+                    },
+                }
+            };
+
+            const body = try parse_stmt(arena, tokens);
+            const body_ptr = try utils.create(arena, body);
+
+            return .{ .@"for" = .{
+                .init = init,
+                .cond = cond,
+                .post = post,
+                .body = body_ptr,
+                .label = null,
+            } };
+        },
+
         .l_brace => {
             tokens.put_back(current);
             const block = try parse_block(arena, tokens);

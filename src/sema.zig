@@ -81,7 +81,7 @@ fn resolve_stmt(
 
             try resolve_block(inner_bp, b);
         },
-        // else => @panic("unimplemented"),
+        else => @panic("unimplemented"),
     }
 }
 

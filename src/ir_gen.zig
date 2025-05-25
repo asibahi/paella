@@ -83,7 +83,7 @@ fn stmt_emit_ir(
             } else try bp.append(.{ .label = else_label });
         },
         .compound => |b| try block_emit_ir(bp, &b),
-        // else => @panic("todo"),
+        else => @panic("todo"),
     }
 }
 

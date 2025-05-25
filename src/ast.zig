@@ -85,7 +85,6 @@ pub const Decl = struct {
         try writer.print("int {s}", .{self.name});
         if (self.init) |e|
             try writer.print(" <- {}", .{e});
-        try writer.writeAll(";");
     }
 };
 
@@ -94,7 +93,28 @@ pub const Stmt = union(enum) {
     expr: *Expr,
     @"if": struct { cond: *Expr, then: *Stmt, @"else": ?*Stmt },
     compound: Block,
+    @"break": ?[:0]const u8,
+    @"continue": ?[:0]const u8,
+    @"while": While,
+    do_while: While,
+    @"for": For,
     null: void,
+
+    const While = struct {
+        cond: *Expr,
+        body: *Stmt,
+        label: ?[:0]const u8,
+    };
+
+    pub const For = struct {
+        label: ?[:0]const u8,
+        init: Init,
+        cond: ?*Expr,
+        post: ?*Expr,
+        body: *Stmt,
+
+        pub const Init = union(enum) { decl: *Decl, expr: *Expr, none };
+    };
 
     pub fn format(
         self: @This(),
@@ -118,6 +138,45 @@ pub const Stmt = union(enum) {
                     try writer.print("{:^[1]}", .{ es, w + 1 });
                 }
             },
+            .@"break" => |l| if (l) |label|
+                try writer.print("BREAK :{s}", .{label})
+            else
+                try writer.writeAll("BREAK"),
+            .@"continue" => |l| if (l) |label|
+                try writer.print("CONTINUE :{s}", .{label})
+            else
+                try writer.writeAll("CONTINUE"),
+            .@"while" => |wl| {
+                if (wl.label) |label|
+                    try writer.print("{s}: ", .{label});
+                try writer.print("WHILE {}\n", .{wl.cond});
+                try writer.print("{:^[1]}", .{ wl.body, w + 1 });
+            },
+            .do_while => |wl| {
+                if (wl.label) |label|
+                    try writer.print("{s}: ", .{label});
+                try writer.print("UNTIL {}\n", .{wl.cond});
+                try writer.print("{:^[1]}", .{ wl.body, w + 1 });
+            },
+            .@"for" => |f| {
+                if (f.label) |label|
+                    try writer.print("{s}: ", .{label});
+                try writer.writeAll("FOR ");
+                switch (f.init) {
+                    .none => try writer.writeAll("---; "),
+                    inline else => |data| try writer.print("{}; ", .{data}),
+                }
+                if (f.cond) |fc|
+                    try writer.print("{}; ", .{fc})
+                else
+                    try writer.writeAll("---; ");
+                if (f.post) |fp|
+                    try writer.print("{}\n", .{fp})
+                else
+                    try writer.writeAll("---\n");
+
+                try writer.print("{:^[1]}", .{ f.body, w + 1 });
+            },
             .compound => |b| {
                 var iter = b.body.constIterator(0);
 
@@ -139,6 +198,7 @@ pub const Stmt = union(enum) {
                 }
             },
             .null => try writer.print(";", .{}),
+            // else => @panic("todo"),
         }
     }
 };
