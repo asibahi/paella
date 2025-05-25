@@ -49,6 +49,7 @@ pub fn build(b: *std.Build) !void {
 
     { // `zig build submit` command
         const test_step = b.step("submit", "Run the Book's test suite");
+        const all_tests = b.option(bool, "all", "run all tests in submit") orelse false;
 
         // subshells. how do they work.
         const inner_command = try std.mem.join(b.allocator, " ", &.{
@@ -59,6 +60,7 @@ pub fn build(b: *std.Build) !void {
                 " ",
                 b.args orelse &.{},
             ),
+            if (all_tests) "" else "--latest-only",
         });
 
         // does this work like i think it does?
@@ -69,6 +71,7 @@ pub fn build(b: *std.Build) !void {
         test_command.step.dependOn(b.getInstallStep());
         test_step.dependOn(&test_command.step);
     }
+
     { // `zig build eye` command
         const eye_step = b.step("eye", "Eye test all the files in a given directory");
 
