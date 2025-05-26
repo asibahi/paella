@@ -23,16 +23,17 @@ fn resolve_func_def(
         .strings = strings,
         .variable_map = &variable_map,
     };
-    try resolve_block(bp, &func_def.block);
+    try resolve_block(bp, null, &func_def.block);
 }
 
 fn resolve_block(
     bp: Boilerplate,
+    current_label: ?[:0]const u8,
     block: *ast.Block,
 ) Error!void {
     var iter = block.body.iterator(0);
     while (iter.next()) |item| switch (item.*) {
-        .S => |*s| try resolve_stmt(bp, s),
+        .S => |*s| try resolve_stmt(bp, current_label, s),
         .D => |*d| try resolve_decl(bp, d),
     };
 }
@@ -54,18 +55,27 @@ fn resolve_decl(
 
 fn resolve_stmt(
     bp: Boilerplate,
+    current_label: ?[:0]const u8,
     stmt: *ast.Stmt,
 ) Error!void {
     switch (stmt.*) {
         .null => {},
+        .@"break", .@"continue" => |*l| l.* = current_label orelse
+            return error.BreakOrContinueOutsideLoop,
         .@"return", .expr => |expr| try resolve_expr(bp, expr),
         .@"if" => |i| {
             try resolve_expr(bp, i.cond);
-            try resolve_stmt(bp, i.then);
+            try resolve_stmt(bp, current_label, i.then);
             if (i.@"else") |e|
-                try resolve_stmt(bp, e);
+                try resolve_stmt(bp, current_label, e);
         },
-        .compound => |*b| {
+        .@"while", .do_while => |*w| {
+            const label = try bp.make_temporary("while");
+            w.label = label;
+            try resolve_expr(bp, w.cond);
+            try resolve_stmt(bp, label, w.body);
+        },
+        .@"for", .compound => {
             var variable_map = try bp.variable_map.clone(bp.gpa);
             defer variable_map.deinit(bp.gpa);
 
@@ -79,9 +89,24 @@ fn resolve_stmt(
                 .variable_map = &variable_map,
             };
 
-            try resolve_block(inner_bp, b);
+            switch (stmt.*) {
+                .compound => |*b| try resolve_block(inner_bp, current_label, b),
+                .@"for" => |*f| {
+                    const label = try bp.make_temporary("for");
+                    f.label = label;
+                    switch (f.init) {
+                        .decl => |d| try resolve_decl(inner_bp, d),
+                        .expr => |e| try resolve_expr(inner_bp, e),
+                        .none => {},
+                    }
+                    if (f.cond) |c| try resolve_expr(inner_bp, c);
+                    if (f.post) |p| try resolve_expr(inner_bp, p);
+                    try resolve_stmt(inner_bp, label, f.body);
+                },
+                else => unreachable,
+            }
         },
-        else => @panic("unimplemented"),
+        // else => @panic("unimplemented"),
     }
 }
 
@@ -152,4 +177,5 @@ const Error = std.mem.Allocator.Error || std.fmt.BufPrintError ||
         DuplicateVariableDecl,
         InvalidLValue,
         UndeclaredVariable,
+        BreakOrContinueOutsideLoop,
     };
