@@ -83,7 +83,58 @@ fn stmt_emit_ir(
             } else try bp.append(.{ .label = else_label });
         },
         .compound => |b| try block_emit_ir(bp, &b),
-        else => @panic("todo"),
+        .do_while => |w| {
+            const st = try bp.augment_label("st", w.label.?);
+            const br = try bp.augment_label("br", w.label.?);
+            const cn = try bp.augment_label("cn", w.label.?);
+
+            try bp.append(.{ .label = st });
+            try stmt_emit_ir(bp, w.body);
+            try bp.append(.{ .label = cn });
+            const v = try expr_emit_ir(bp, w.cond);
+            try bp.append(.{ .jump_nz = .init(v, st) });
+            try bp.append(.{ .label = br });
+        },
+        .@"while" => |w| {
+            const br = try bp.augment_label("br", w.label.?);
+            const cn = try bp.augment_label("cn", w.label.?);
+
+            try bp.append(.{ .label = cn });
+            const v = try expr_emit_ir(bp, w.cond);
+            try bp.append(.{ .jump_z = .init(v, br) });
+            try stmt_emit_ir(bp, w.body);
+            try bp.append(.{ .jump = cn });
+            try bp.append(.{ .label = br });
+        },
+        .@"for" => |f| {
+            const st = try bp.augment_label("st", f.label.?);
+            const br = try bp.augment_label("br", f.label.?);
+            const cn = try bp.augment_label("cn", f.label.?);
+
+            switch (f.init) {
+                .decl => |d| try decl_emit_ir(bp, d),
+                .expr => |e| _ = try expr_emit_ir(bp, e),
+                .none => {},
+            }
+            try bp.append(.{ .label = st });
+            if (f.cond) |c| {
+                const v = try expr_emit_ir(bp, c);
+                try bp.append(.{ .jump_z = .init(v, br) });
+            }
+            try stmt_emit_ir(bp, f.body);
+            try bp.append(.{ .label = cn });
+            if (f.post) |p|
+                _ = try expr_emit_ir(bp, p);
+            try bp.append(.{ .jump = st });
+            try bp.append(.{ .label = br });
+        },
+        .@"break" => |l| try bp.append(.{
+            .jump = try bp.augment_label("br", l.?),
+        }),
+        .@"continue" => |l| try bp.append(.{
+            .jump = try bp.augment_label("cn", l.?),
+        }),
+        // else => @panic("todo"),
     }
 }
 
@@ -251,6 +302,19 @@ const Boilerplate = struct {
         comptime prefix: []const u8,
     ) Error![:0]const u8 {
         return try self.strings.make_temporary(self.alloc, prefix);
+    }
+
+    fn augment_label(
+        self: @This(),
+        comptime prefix: []const u8,
+        label: [:0]const u8,
+    ) Error![:0]const u8 {
+        const cat = try std.fmt.allocPrint(self.alloc, prefix ++ "_{s}", .{label});
+        defer self.alloc.free(cat);
+
+        const name = try self.strings.get_or_put(self.alloc, cat);
+
+        return name.string;
     }
 
     fn unary(
