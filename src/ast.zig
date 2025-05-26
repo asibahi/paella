@@ -178,17 +178,17 @@ pub const Stmt = union(enum) {
                 try writer.print("{:^[1]}", .{ f.body, w + 1 });
             },
             .compound => |b| {
-                var iter = b.body.constIterator(0);
+                // options.precision used to communicate width to child elements
+                // without being applied to this element. specifically if the
+                // first element in a block is also a block.
+                var cw = options.width orelse options.precision orelse 0;
 
-                var cw: usize = undefined;
+                var iter = b.body.constIterator(0);
                 if (options.alignment != .center) {
                     try writer.writeAll("DO");
-                    cw = w + 1;
-                } else {
-                    if (iter.next()) |item|
-                        try writer.print("{}", .{item});
-                    cw = w;
-                }
+                    cw += 1;
+                } else if (iter.next()) |item|
+                    try writer.print("{:.[1]}", .{ item, cw });
 
                 while (iter.next()) |item| {
                     try writer.print("\n{:[1]}", .{
