@@ -12,7 +12,7 @@ pub fn prgm_emit_it(
 ) Error!ir.Prgm {
     const func_def = try utils.create(
         alloc,
-        try func_def_emit_ir(alloc, strings, prgm.func_def),
+        try func_def_emit_ir(alloc, strings, prgm.funcs.at(0)),
     );
 
     return .{ .func_def = func_def };
@@ -21,7 +21,7 @@ pub fn prgm_emit_it(
 fn func_def_emit_ir(
     alloc: std.mem.Allocator,
     strings: *utils.StringInterner,
-    func_def: *const ast.FuncDef,
+    func_def: *const ast.FuncDecl,
 ) Error!ir.FuncDef {
     const name = try strings.get_or_put(alloc, func_def.name);
     var instrs: std.ArrayListUnmanaged(ir.Instr) = .empty;
@@ -32,7 +32,7 @@ fn func_def_emit_ir(
         .instrs = &instrs,
     };
 
-    try block_emit_ir(bp, &func_def.block);
+    try block_emit_ir(bp, &func_def.block.?);
     try instrs.append(alloc, .{ .ret = .{ .constant = 0 } });
 
     return .{ .name = name, .instrs = instrs };
@@ -45,13 +45,13 @@ fn block_emit_ir(
     var iter = block.body.constIterator(0);
     while (iter.next()) |item| switch (item.*) {
         .S => |*s| try stmt_emit_ir(bp, s),
-        .D => |*d| try decl_emit_ir(bp, d),
+        .D => |*d| try decl_emit_ir(bp, &d.V),
     };
 }
 
 fn decl_emit_ir(
     bp: Boilerplate,
-    decl: *const ast.Decl,
+    decl: *const ast.VarDecl,
 ) Error!void {
     if (decl.init) |e| {
         const src = try expr_emit_ir(bp, e);
@@ -281,7 +281,7 @@ fn expr_emit_ir(
 
             return dst;
         },
-        // else => @panic("todo"),
+        else => @panic("todo"),
     }
 }
 

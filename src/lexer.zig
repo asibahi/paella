@@ -58,6 +58,8 @@ pub const Token = struct {
         query, // ?
         colon, // :
 
+        comma, //,
+
         type_int,
 
         keyword_void,
@@ -213,6 +215,10 @@ pub const Tokenizer = struct {
                 },
                 ':' => {
                     result.tag = .colon;
+                    self.index += 1;
+                },
+                ',' => {
+                    result.tag = .comma;
                     self.index += 1;
                 },
                 else => result.tag = .invalid,

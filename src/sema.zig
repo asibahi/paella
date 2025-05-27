@@ -7,13 +7,13 @@ pub fn resolve_prgm(
     strings: *utils.StringInterner,
     prgm: *ast.Prgm,
 ) Error!void {
-    try resolve_func_def(gpa, strings, prgm.func_def);
+    try resolve_func_def(gpa, strings, prgm.funcs.at(0));
 }
 
 fn resolve_func_def(
     gpa: std.mem.Allocator,
     strings: *utils.StringInterner,
-    func_def: *ast.FuncDef,
+    func_def: *ast.FuncDecl,
 ) Error!void {
     var variable_map: VariableMap = .empty;
     defer variable_map.deinit(gpa);
@@ -23,7 +23,7 @@ fn resolve_func_def(
         .strings = strings,
         .variable_map = &variable_map,
     };
-    try resolve_block(bp, null, &func_def.block);
+    try resolve_block(bp, null, &func_def.block.?);
 }
 
 fn resolve_block(
@@ -34,13 +34,13 @@ fn resolve_block(
     var iter = block.body.iterator(0);
     while (iter.next()) |item| switch (item.*) {
         .S => |*s| try resolve_stmt(bp, current_label, s),
-        .D => |*d| try resolve_decl(bp, d),
+        .D => |*d| try resolve_decl(bp, &d.V),
     };
 }
 
 fn resolve_decl(
     bp: Boilerplate,
-    decl: *ast.Decl,
+    decl: *ast.VarDecl,
 ) Error!void {
     if (bp.variable_map.get(decl.name.name)) |entry| if (entry.scope == .local)
         return error.DuplicateVariableDecl;
@@ -151,6 +151,7 @@ fn resolve_expr(
             try resolve_expr(bp, t.@"1");
             try resolve_expr(bp, t.@"2");
         },
+        else => @panic("unimplemented"),
     }
 }
 

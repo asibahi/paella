@@ -8,30 +8,18 @@ pub fn parse_prgm(
     arena: std.mem.Allocator,
     tokens: *lexer.Tokenizer,
 ) Error!ast.Prgm {
-    const func_def = try parse_func_def(arena, tokens);
-    const func_ptr = try utils.create(arena, func_def);
+    var funcs: std.SegmentedList(ast.FuncDecl, 0) = .{};
+
+    while (tokens.next()) |next_token| {
+        tokens.put_back(next_token);
+        const func_decl = try parse_func_decl(arena, tokens);
+        try funcs.append(arena, func_decl);
+    }
 
     // now that we are done, check the tokenizer is emoty.
     if (tokens.next()) |_| return error.ExtraJunk;
 
-    return .{ .func_def = func_ptr };
-}
-
-fn parse_func_def(
-    arena: std.mem.Allocator,
-    tokens: *lexer.Tokenizer,
-) Error!ast.FuncDef {
-    try expect(.type_int, tokens);
-
-    const name = try expect(.identifier, tokens);
-
-    try expect(.l_paren, tokens);
-    try expect(.keyword_void, tokens);
-    try expect(.r_paren, tokens);
-
-    const block = try parse_block(arena, tokens);
-
-    return .{ .name = name, .block = block };
+    return .{ .funcs = funcs };
 }
 
 fn parse_block(
@@ -62,15 +50,84 @@ fn parse_block_item(
     tokens.put_back(current);
 
     switch (current.tag) {
-        .type_int => return .decl(try parse_var_decl(arena, tokens)),
+        .type_int => return .decl(try parse_decl(arena, tokens)),
         else => return .stmt(try parse_stmt(arena, tokens)),
     }
+}
+
+fn parse_decl(
+    arena: std.mem.Allocator,
+    tokens: *lexer.Tokenizer,
+) Error!ast.Decl {
+    const int_token = tokens.next() orelse
+        return error.NotEnoughJunk;
+    if (int_token.tag != .type_int) return error.SyntaxError;
+    _ = try expect(.identifier, tokens);
+
+    const new_token = tokens.next() orelse
+        return error.NotEnoughJunk;
+
+    tokens.put_back(int_token);
+    switch (new_token.tag) {
+        .semicolon, .equals => return .{ .V = try parse_var_decl(arena, tokens) },
+        .l_paren => return .{ .F = try parse_func_decl(arena, tokens) },
+        else => return error.SyntaxError,
+    }
+}
+
+fn parse_func_decl(
+    arena: std.mem.Allocator,
+    tokens: *lexer.Tokenizer,
+) Error!ast.FuncDecl {
+    try expect(.type_int, tokens);
+
+    const name = try expect(.identifier, tokens);
+
+    var params: std.SegmentedList(ast.Identifier, 0) = .{};
+    { // params
+        try expect(.l_paren, tokens);
+        const next_token = tokens.next() orelse
+            return error.SyntaxError;
+        params: switch (next_token.tag) {
+            .keyword_void => try expect(.r_paren, tokens),
+            .type_int => {
+                const ident = try expect(.identifier, tokens);
+                try params.append(arena, .{ .name = ident });
+                const next_next = tokens.next() orelse
+                    return error.SyntaxError;
+                switch (next_next.tag) {
+                    .comma => {
+                        try expect(.type_int, tokens);
+                        continue :params .type_int;
+                    },
+                    .r_paren => {},
+                    else => continue :params .invalid,
+                }
+            },
+            else => return error.SyntaxError,
+        }
+    }
+    const block = block: {
+        const peeked = tokens.next() orelse
+            return error.SyntaxError;
+
+        switch (peeked.tag) {
+            .semicolon => break :block null,
+            .l_brace => {
+                tokens.put_back(peeked);
+                break :block try parse_block(arena, tokens);
+            },
+            else => return error.SyntaxError,
+        }
+    };
+
+    return .{ .name = name, .params = params, .block = block };
 }
 
 fn parse_var_decl(
     arena: std.mem.Allocator,
     tokens: *lexer.Tokenizer,
-) Error!ast.Decl {
+) Error!ast.VarDecl {
     try expect(.type_int, tokens);
     const name = try expect(.identifier, tokens);
     const new_token = tokens.next() orelse
@@ -317,9 +374,22 @@ fn parse_factor(
         return error.NotEnoughJunk;
 
     switch (current.tag) {
-        .identifier => return .{ .@"var" = .{
-            .name = tokens.buffer[current.loc.start..current.loc.end],
-        } },
+        .identifier => {
+            const next_token = tokens.next() orelse
+                return error.NotEnoughJunk;
+            const name = tokens.buffer[current.loc.start..current.loc.end];
+
+            switch (next_token.tag) {
+                .l_paren => return .{ .func_call = .{
+                    .{ .name = name },
+                    try parse_args(arena, tokens),
+                } },
+                else => {
+                    tokens.put_back(next_token);
+                    return .{ .@"var" = .{ .name = name } };
+                },
+            }
+        },
         .number_literal => {
             const lit = tokens.buffer[current.loc.start..current.loc.end];
             const res = std.fmt.parseInt(u64, lit, 10) catch
@@ -349,6 +419,33 @@ fn parse_factor(
     }
 }
 
+fn parse_args(
+    arena: std.mem.Allocator,
+    tokens: *lexer.Tokenizer,
+) Error!std.SegmentedList(ast.Expr, 0) {
+    // assumes l_paren already consumed
+    var ret: std.SegmentedList(ast.Expr, 0) = .{};
+
+    const current = tokens.next() orelse
+        return error.NotEnoughJunk;
+
+    args: switch (current.tag) {
+        .r_paren => return ret,
+        .comma => {
+            const expr = try parse_expr(arena, tokens, 0);
+            try ret.append(arena, expr);
+
+            const n_token = tokens.next() orelse
+                return error.NotEnoughJunk;
+            continue :args n_token.tag;
+        },
+        else => {
+            tokens.put_back(current);
+            continue :args .comma;
+        },
+    }
+}
+
 inline fn expect(
     comptime expected: lexer.Token.Tag,
     tokens: *lexer.Tokenizer,
@@ -373,12 +470,7 @@ fn ExpectResult(comptime expected: lexer.Token.Tag) type {
 
 const Error =
     std.mem.Allocator.Error ||
-    error{
-        SyntaxError,
-        InvalidInt,
-        ExtraJunk,
-        NotEnoughJunk,
-    };
+    error{ SyntaxError, InvalidInt, ExtraJunk, NotEnoughJunk, DebuggingError1, DebuggingError2 };
 
 test "precedence" {
     try testing_prec("3 * 4 + 5", "(+ (* 3 4) 5)", .binop_add);

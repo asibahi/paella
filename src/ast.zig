@@ -1,25 +1,8 @@
 const std = @import("std");
 const utils = @import("utils.zig");
 
-pub const Identifier = union(enum) {
-    name: []const u8,
-    idx: utils.StringInterner.Idx,
-
-    pub fn format(
-        self: @This(),
-        comptime _: []const u8,
-        _: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        switch (self) {
-            .name => |s| try writer.print("{s}", .{s}),
-            .idx => |i| try writer.print("{s}", .{i}),
-        }
-    }
-};
-
 pub const Prgm = struct {
-    func_def: *FuncDef,
+    funcs: std.SegmentedList(FuncDecl, 0),
 
     pub fn format(
         self: @This(),
@@ -28,34 +11,16 @@ pub const Prgm = struct {
         writer: anytype,
     ) !void {
         try writer.print("PRORGAM\n", .{});
-        try writer.print("{:[1]}", .{
-            self.func_def,
-            (options.width orelse 0) + 1,
-        });
-        try writer.writeByteNTimes('=', 32);
-    }
-};
 
-pub const FuncDef = struct {
-    name: []const u8,
-    block: Block,
-
-    pub fn format(
-        self: @This(),
-        comptime _: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        const w = options.width orelse 0;
-        try writer.writeByteNTimes('\t', w);
-
-        try writer.print("FUNCTION {s}\n", .{self.name});
-        var iter = self.block.body.constIterator(0);
-        while (iter.next()) |item|
-            try writer.print("{:[1]}\n", .{
-                item,
-                w + 1,
+        var iter = self.funcs.constIterator(0);
+        while (iter.next()) |func| {
+            try writer.print("{:[1]}", .{
+                func,
+                (options.width orelse 0) + 1,
             });
+        }
+
+        try writer.writeByteNTimes('=', 32);
     }
 };
 
@@ -87,7 +52,57 @@ pub const BlockItem = union(enum) {
     }
 };
 
-pub const Decl = struct {
+pub const Decl = union(enum) {
+    F: FuncDecl,
+    V: VarDecl,
+
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        switch (self) {
+            inline else => |i| try i.format(fmt, options, writer),
+        }
+    }
+};
+
+pub const FuncDecl = struct {
+    name: []const u8,
+    params: std.SegmentedList(Identifier, 0),
+    block: ?Block,
+
+    pub fn format(
+        self: @This(),
+        comptime _: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        const w = options.width orelse 0;
+        try writer.writeByteNTimes('\t', w);
+
+        try writer.print("FUNCTION {s}", .{self.name});
+        {
+            var iter = self.params.constIterator(0);
+            while (iter.next()) |item| {
+                try writer.print(" {}", .{item});
+            }
+        }
+        try writer.writeByte('\n');
+
+        if (self.block) |b| {
+            var iter = b.body.constIterator(0);
+            while (iter.next()) |item|
+                try writer.print("{:[1]}\n", .{
+                    item,
+                    w + 1,
+                });
+        }
+    }
+};
+
+pub const VarDecl = struct {
     name: Identifier,
     init: ?*Expr,
 
@@ -131,7 +146,7 @@ pub const Stmt = union(enum) {
         post: ?*Expr,
         body: *Stmt,
 
-        pub const Init = union(enum) { decl: *Decl, expr: *Expr, none };
+        pub const Init = union(enum) { decl: *VarDecl, expr: *Expr, none };
     };
 
     pub fn format(
@@ -247,6 +262,8 @@ pub const Expr = union(enum) {
 
     ternary: struct { *Expr, *Expr, *Expr },
 
+    func_call: struct { Identifier, std.SegmentedList(Expr, 0) },
+
     pub const BinOp = struct { *Expr, *Expr };
 
     pub fn format(
@@ -280,6 +297,32 @@ pub const Expr = union(enum) {
             .binop_ge => |b| try writer.print("(>= {} {})", b),
 
             .ternary => |t| try writer.print("(?: {} {} {})", t),
+
+            .func_call => |f| {
+                try writer.print("({}", .{f.@"0"});
+                var iter = f.@"1".constIterator(0);
+                while (iter.next()) |item| {
+                    try writer.print(" {}", .{item});
+                }
+                try writer.writeByte(')');
+            },
+        }
+    }
+};
+
+pub const Identifier = union(enum) {
+    name: []const u8,
+    idx: utils.StringInterner.Idx,
+
+    pub fn format(
+        self: @This(),
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        switch (self) {
+            .name => |s| try writer.print("{s}", .{s}),
+            .idx => |i| try writer.print("{}", .{i}),
         }
     }
 };
