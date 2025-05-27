@@ -29,18 +29,6 @@ pub const StringInterner = struct {
     }
 
     pub const Idx = u32;
-    pub const GetOrPutResult = struct {
-        idx: Idx,
-        string: [:0]const u8,
-        // value: void,
-
-        fn init(self: *const StringInterner, idx: Idx) @This() {
-            return .{
-                .idx = idx,
-                .string = get_string(self, idx).?,
-            };
-        }
-    };
 
     pub fn get_idx(
         self: *const StringInterner,
@@ -64,7 +52,7 @@ pub const StringInterner = struct {
         self: *StringInterner,
         gpa: std.mem.Allocator,
         string: []const u8,
-    ) std.mem.Allocator.Error!GetOrPutResult {
+    ) std.mem.Allocator.Error!Idx {
         try self.bytes.ensureUnusedCapacity(gpa, string.len + 1);
         try self.map.ensureUnusedCapacityContext(gpa, 1, .{ .bytes = &self.bytes });
 
@@ -73,7 +61,7 @@ pub const StringInterner = struct {
         gop.value_ptr.* = {}; // just a reminder that this is void
 
         if (gop.found_existing)
-            return .init(self, gop.key_ptr.*);
+            return gop.key_ptr.*;
 
         const new_id: Idx = @intCast(self.bytes.items.len);
 
@@ -81,14 +69,14 @@ pub const StringInterner = struct {
         self.bytes.appendAssumeCapacity(0);
         gop.key_ptr.* = new_id;
 
-        return .init(self, new_id);
+        return new_id;
     }
 
     pub fn make_temporary(
         self: *StringInterner,
         gpa: std.mem.Allocator,
         prefix: []const u8,
-    ) ![:0]const u8 {
+    ) !Idx {
         // zig static variables
         const static = struct {
             var counter: usize = 0;
@@ -104,6 +92,6 @@ pub const StringInterner = struct {
         const name = try self.get_or_put(gpa, name_buf);
         static.counter += 1;
 
-        return name.string;
+        return name;
     }
 };

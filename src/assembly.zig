@@ -45,7 +45,7 @@ pub const Prgm = struct {
 };
 
 pub const FuncDef = struct {
-    name: []const u8,
+    name: utils.StringInterner.Idx,
     instrs: std.ArrayListUnmanaged(Instr),
 
     pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
@@ -72,7 +72,7 @@ pub const FuncDef = struct {
             const w = options.width orelse 0;
             try writer.writeByteNTimes('\t', w);
 
-            try writer.print("FUNCTION {s}\n", .{self.name});
+            try writer.print("FUNCTION {}\n", .{self.name});
             for (self.instrs.items) |instr|
                 try writer.print("{:[1]}\n", .{
                     instr,
@@ -87,10 +87,10 @@ pub const Instr = union(enum) {
     ret: void,
 
     cmp: Mov,
-    jmp: [:0]const u8,
-    jmp_cc: struct { CondCode, [:0]const u8 },
+    jmp: utils.StringInterner.Idx,
+    jmp_cc: struct { CondCode, utils.StringInterner.Idx },
     set_cc: struct { CondCode, Operand },
-    label: [:0]const u8,
+    label: utils.StringInterner.Idx,
 
     // unary operations
     neg: Operand,
@@ -135,10 +135,10 @@ pub const Instr = union(enum) {
                 \\ret
             )),
 
-            .jmp => |s| try writer.print("\tjmp    .L{s}", .{s}),
-            .jmp_cc => |s| try writer.print("\tj{s: <7}.L{s}", .{ @tagName(s.@"0"), s.@"1" }),
+            .jmp => |s| try writer.print("\tjmp    .L{}", .{s}),
+            .jmp_cc => |s| try writer.print("\tj{s: <7}.L{}", .{ @tagName(s.@"0"), s.@"1" }),
             .set_cc => |s| try writer.print("\tset{s:<7}{gen:1}", .{ @tagName(s.@"0"), s.@"1" }),
-            .label => |s| try writer.print(".L{s}:", .{s}),
+            .label => |s| try writer.print(".L{}:", .{s}),
 
             .neg => |o| try writer.print("\tnegl    {gen}", .{o}),
             .not => |o| try writer.print("\tnotl    {gen}", .{o}),
@@ -160,10 +160,10 @@ pub const Instr = union(enum) {
                 .mov => |m| try writer.print("mov\t{[src]} -> {[dst]}", m),
                 .cmp => |m| try writer.print("cmp\t{[src]} -> {[dst]}", m),
 
-                .jmp => |s| try writer.print("jmp\t.L{s}", .{s}),
-                .jmp_cc => |s| try writer.print("jmp{s}\t.L{s}", .{ @tagName(s.@"0"), s.@"1" }),
+                .jmp => |s| try writer.print("jmp\t.L{}", .{s}),
+                .jmp_cc => |s| try writer.print("jmp{s}\t.L{}", .{ @tagName(s.@"0"), s.@"1" }),
                 .set_cc => |s| try writer.print("set{s}\t{}", .{ @tagName(s.@"0"), s.@"1" }),
-                .label => |s| try writer.print("=> .L{s}", .{s}),
+                .label => |s| try writer.print("=> .L{}", .{s}),
 
                 .neg => |o| try writer.print("neg\t{}", .{o}),
                 .not => |o| try writer.print("not\t{}", .{o}),
@@ -181,7 +181,7 @@ pub const Instr = union(enum) {
 pub const Operand = union(enum) {
     imm: u64,
     reg: Register,
-    pseudo: [:0]const u8,
+    pseudo: utils.StringInterner.Idx,
     stack: Offset,
 
     pub const Register = enum { AX, DX, R10, R11 };
@@ -215,7 +215,7 @@ pub const Operand = union(enum) {
             switch (self) {
                 .imm => |i| try writer.print("imm {d}", .{i}),
                 .reg => |r| try writer.print("{s}", .{@tagName(r)}),
-                .pseudo => |s| try writer.print("pseudo {s}", .{s}),
+                .pseudo => |s| try writer.print("pseudo {}", .{s}),
                 .stack => |d| try writer.print("stack {d}", .{d}),
             }
         }

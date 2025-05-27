@@ -88,7 +88,7 @@ fn parse_var_decl(
         else => return error.SyntaxError,
     };
 
-    return .{ .name = name, .init = init };
+    return .{ .name = .{ .name = name }, .init = init };
 }
 
 fn parse_stmt(
@@ -317,9 +317,9 @@ fn parse_factor(
         return error.NotEnoughJunk;
 
     switch (current.tag) {
-        .identifier => return .{
-            .@"var" = tokens.buffer[current.loc.start..current.loc.end],
-        },
+        .identifier => return .{ .@"var" = .{
+            .name = tokens.buffer[current.loc.start..current.loc.end],
+        } },
         .number_literal => {
             const lit = tokens.buffer[current.loc.start..current.loc.end];
             const res = std.fmt.parseInt(u64, lit, 10) catch

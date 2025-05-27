@@ -1,4 +1,10 @@
 const std = @import("std");
+const utils = @import("utils.zig");
+
+pub const Identifier = union(enum) {
+    name: []const u8,
+    idx: utils.StringInterner.Idx,
+};
 
 pub const Prgm = struct {
     func_def: *FuncDef,
@@ -31,7 +37,7 @@ pub const FuncDef = struct {
         const w = options.width orelse 0;
         try writer.writeByteNTimes('\t', w);
 
-        try writer.print("FUNCTION {s}\n", .{self.name});
+        try writer.print("FUNCTION {any}\n", .{self.name});
         var iter = self.block.body.constIterator(0);
         while (iter.next()) |item|
             try writer.print("{:[1]}\n", .{
@@ -70,7 +76,7 @@ pub const BlockItem = union(enum) {
 };
 
 pub const Decl = struct {
-    name: []const u8,
+    name: Identifier,
     init: ?*Expr,
 
     pub fn format(
@@ -82,7 +88,7 @@ pub const Decl = struct {
         const w = options.width orelse 0;
         try writer.writeByteNTimes('\t', w);
 
-        try writer.print("int {s}", .{self.name});
+        try writer.print("int {any}", .{self.name});
         if (self.init) |e|
             try writer.print(" <- {}", .{e});
     }
@@ -93,8 +99,8 @@ pub const Stmt = union(enum) {
     expr: *Expr,
     @"if": struct { cond: *Expr, then: *Stmt, @"else": ?*Stmt },
     compound: Block,
-    @"break": ?[:0]const u8,
-    @"continue": ?[:0]const u8,
+    @"break": ?utils.StringInterner.Idx,
+    @"continue": ?utils.StringInterner.Idx,
     @"while": While,
     do_while: While,
     @"for": For,
@@ -103,11 +109,11 @@ pub const Stmt = union(enum) {
     const While = struct {
         cond: *Expr,
         body: *Stmt,
-        label: ?[:0]const u8,
+        label: ?utils.StringInterner.Idx,
     };
 
     pub const For = struct {
-        label: ?[:0]const u8,
+        label: ?utils.StringInterner.Idx,
         init: Init,
         cond: ?*Expr,
         post: ?*Expr,
@@ -139,28 +145,28 @@ pub const Stmt = union(enum) {
                 }
             },
             .@"break" => |l| if (l) |label|
-                try writer.print("BREAK :{s}", .{label})
+                try writer.print("BREAK :{}", .{label})
             else
                 try writer.writeAll("BREAK"),
             .@"continue" => |l| if (l) |label|
-                try writer.print("CONTINUE :{s}", .{label})
+                try writer.print("CONTINUE :{}", .{label})
             else
                 try writer.writeAll("CONTINUE"),
             .@"while" => |wl| {
                 if (wl.label) |label|
-                    try writer.print("{s}: ", .{label});
+                    try writer.print("{}: ", .{label});
                 try writer.print("WHILE {}\n", .{wl.cond});
                 try writer.print("{:^[1]}", .{ wl.body, w + 1 });
             },
             .do_while => |wl| {
                 if (wl.label) |label|
-                    try writer.print("{s}: ", .{label});
+                    try writer.print("{}: ", .{label});
                 try writer.print("UNTIL {}\n", .{wl.cond});
                 try writer.print("{:^[1]}", .{ wl.body, w + 1 });
             },
             .@"for" => |f| {
                 if (f.label) |label|
-                    try writer.print("{s}: ", .{label});
+                    try writer.print("{}: ", .{label});
                 try writer.writeAll("FOR ");
                 switch (f.init) {
                     .none => try writer.writeAll("---; "),
@@ -205,7 +211,7 @@ pub const Stmt = union(enum) {
 
 pub const Expr = union(enum) {
     constant: u64,
-    @"var": []const u8,
+    @"var": Identifier,
     assignment: BinOp,
 
     unop_neg: *Expr,
@@ -239,7 +245,7 @@ pub const Expr = union(enum) {
     ) !void {
         switch (self) {
             .constant => |c| try writer.print("{d}", .{c}),
-            .@"var" => |s| try writer.print("{s}", .{s}),
+            .@"var" => |s| try writer.print("{any}", .{s}),
             .assignment => |b| try writer.print("({} <- {})", b),
             // S-Expr
             .unop_neg => |e| try writer.print("(- {})", .{e}),

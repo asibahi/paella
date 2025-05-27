@@ -15,7 +15,7 @@ fn resolve_func_def(
     strings: *utils.StringInterner,
     func_def: *ast.FuncDef,
 ) Error!void {
-    var variable_map: std.StringHashMapUnmanaged(Entry) = .empty;
+    var variable_map: VariableMap = .empty;
     defer variable_map.deinit(gpa);
 
     const bp: Boilerplate = .{
@@ -28,7 +28,7 @@ fn resolve_func_def(
 
 fn resolve_block(
     bp: Boilerplate,
-    current_label: ?[:0]const u8,
+    current_label: ?utils.StringInterner.Idx,
     block: *ast.Block,
 ) Error!void {
     var iter = block.body.iterator(0);
@@ -42,20 +42,20 @@ fn resolve_decl(
     bp: Boilerplate,
     decl: *ast.Decl,
 ) Error!void {
-    if (bp.variable_map.get(decl.name)) |entry| if (entry.scope == .local)
+    if (bp.variable_map.get(decl.name.name)) |entry| if (entry.scope == .local)
         return error.DuplicateVariableDecl;
 
-    const unique_name = try bp.make_temporary(decl.name);
-    try bp.variable_map.put(bp.gpa, decl.name, .{ .name = unique_name });
+    const unique_name = try bp.make_temporary(decl.name.name);
+    try bp.variable_map.put(bp.gpa, decl.name.name, .{ .name = unique_name });
 
     if (decl.init) |expr|
         try resolve_expr(bp, expr);
-    decl.name = unique_name;
+    decl.name = .{ .idx = unique_name };
 }
 
 fn resolve_stmt(
     bp: Boilerplate,
-    current_label: ?[:0]const u8,
+    current_label: ?utils.StringInterner.Idx,
     stmt: *ast.Stmt,
 ) Error!void {
     switch (stmt.*) {
@@ -121,8 +121,8 @@ fn resolve_expr(
             try resolve_expr(bp, b.@"0");
             try resolve_expr(bp, b.@"1");
         },
-        .@"var" => |name| expr.* = if (bp.variable_map.get(name)) |un|
-            .{ .@"var" = un.name }
+        .@"var" => |name| expr.* = if (bp.variable_map.get(name.name)) |un|
+            .{ .@"var" = .{ .idx = un.name } }
         else
             return error.UndeclaredVariable,
         .unop_neg,
@@ -157,18 +157,22 @@ fn resolve_expr(
 const Boilerplate = struct {
     gpa: std.mem.Allocator,
     strings: *utils.StringInterner,
-    variable_map: *std.StringHashMapUnmanaged(Entry),
+    variable_map: *VariableMap,
 
     fn make_temporary(
         self: @This(),
         prefix: []const u8,
-    ) Error![:0]const u8 {
+    ) Error!utils.StringInterner.Idx {
         return try self.strings.make_temporary(self.gpa, prefix);
     }
 };
 
+const VariableMap = std.StringHashMapUnmanaged(
+    Entry,
+);
+
 const Entry = struct {
-    name: [:0]const u8,
+    name: utils.StringInterner.Idx,
     scope: enum { local, parent } = .local,
 };
 

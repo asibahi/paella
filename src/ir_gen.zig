@@ -35,7 +35,7 @@ fn func_def_emit_ir(
     try block_emit_ir(bp, &func_def.block);
     try instrs.append(alloc, .{ .ret = .{ .constant = 0 } });
 
-    return .{ .name = name.string, .instrs = instrs };
+    return .{ .name = name, .instrs = instrs };
 }
 
 fn block_emit_ir(
@@ -55,7 +55,7 @@ fn decl_emit_ir(
 ) Error!void {
     if (decl.init) |e| {
         const src = try expr_emit_ir(bp, e);
-        try bp.append(.{ .copy = .init(src, .{ .variable = @ptrCast(decl.name) }) });
+        try bp.append(.{ .copy = .init(src, .{ .variable = decl.name.idx }) });
     }
 }
 
@@ -144,7 +144,7 @@ fn expr_emit_ir(
 ) Error!ir.Value {
     switch (expr.*) {
         .constant => |c| return .{ .constant = c },
-        .@"var" => |v| return .{ .variable = @ptrCast(v) },
+        .@"var" => |v| return .{ .variable = v.idx },
         .assignment => |b| {
             // bizarro order
             const dst = try expr_emit_ir(bp, b.@"0");
@@ -300,21 +300,22 @@ const Boilerplate = struct {
     fn make_temporary(
         self: @This(),
         comptime prefix: []const u8,
-    ) Error![:0]const u8 {
+    ) Error!utils.StringInterner.Idx {
         return try self.strings.make_temporary(self.alloc, prefix);
     }
 
     fn augment_label(
         self: @This(),
         comptime prefix: []const u8,
-        label: [:0]const u8,
-    ) Error![:0]const u8 {
-        const cat = try std.fmt.allocPrint(self.alloc, prefix ++ "_{s}", .{label});
+        label: utils.StringInterner.Idx,
+    ) Error!utils.StringInterner.Idx {
+        const st_label = self.strings.get_string(label).?;
+        const cat = try std.fmt.allocPrint(self.alloc, prefix ++ "_{s}", .{st_label});
         defer self.alloc.free(cat);
 
         const name = try self.strings.get_or_put(self.alloc, cat);
 
-        return name.string;
+        return name;
     }
 
     fn unary(

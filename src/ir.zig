@@ -27,7 +27,7 @@ pub const Prgm = struct {
 };
 
 pub const FuncDef = struct {
-    name: [:0]const u8,
+    name: utils.StringInterner.Idx,
     instrs: std.ArrayListUnmanaged(Instr),
 
     fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
@@ -43,7 +43,7 @@ pub const FuncDef = struct {
         const w = options.width orelse 0;
         try writer.writeByteNTimes('\t', w);
 
-        try writer.print("FUNCTION {s}\n", .{self.name});
+        try writer.print("FUNCTION {any}\n", .{self.name});
         for (self.instrs.items) |instr|
             try writer.print("{:[1]}\n", .{
                 instr,
@@ -56,11 +56,11 @@ pub const Instr = union(enum) {
     ret: Value,
 
     copy: Unary,
-    jump: [:0]const u8,
+    jump: utils.StringInterner.Idx,
     jump_z: JumpIf,
     jump_nz: JumpIf,
 
-    label: [:0]const u8,
+    label: utils.StringInterner.Idx,
 
     unop_neg: Unary,
     unop_not: Unary,
@@ -100,9 +100,9 @@ pub const Instr = union(enum) {
 
     pub const JumpIf = struct {
         cond: Value,
-        target: [:0]const u8,
+        target: utils.StringInterner.Idx,
 
-        pub fn init(cond: Value, target: [:0]const u8) @This() {
+        pub fn init(cond: Value, target: utils.StringInterner.Idx) @This() {
             return .{ .cond = cond, .target = target };
         }
     };
@@ -120,11 +120,11 @@ pub const Instr = union(enum) {
             .ret => |v| try writer.print("ret {}", .{v}),
 
             .copy => |u| try writer.print("{[dst]} <- {[src]}", u),
-            .jump => |l| try writer.print("jump => {s}", .{l}),
-            .jump_z => |j| try writer.print("jz  {[cond]} => {[target]s}", j),
-            .jump_nz => |j| try writer.print("jnz {[cond]} => {[target]s}", j),
+            .jump => |l| try writer.print("jump => {}", .{l}),
+            .jump_z => |j| try writer.print("jz  {[cond]} => {[target]}", j),
+            .jump_nz => |j| try writer.print("jnz {[cond]} => {[target]}", j),
 
-            .label => |l| try writer.print("=> {s}", .{l}),
+            .label => |l| try writer.print("=> {}", .{l}),
 
             .unop_neg => |u| try writer.print("{[dst]} <- - {[src]}", u),
             .unop_not => |u| try writer.print("{[dst]} <- ~ {[src]}", u),
@@ -148,7 +148,7 @@ pub const Instr = union(enum) {
 
 pub const Value = union(enum) {
     constant: u64,
-    variable: [:0]const u8,
+    variable: utils.StringInterner.Idx,
 
     pub fn format(
         self: @This(),
@@ -158,7 +158,7 @@ pub const Value = union(enum) {
     ) !void {
         switch (self) {
             .constant => |c| try writer.print("{}", .{c}),
-            .variable => |n| try writer.print("{s}", .{n}),
+            .variable => |n| try writer.print("{}", .{n}),
         }
     }
 };

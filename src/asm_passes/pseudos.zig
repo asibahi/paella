@@ -2,7 +2,10 @@ const std = @import("std");
 const assembly = @import("../assembly.zig");
 const utils = @import("../utils.zig");
 
-const PseudoMap = std.StringArrayHashMap(assembly.Operand.Offset);
+const PseudoMap = std.AutoArrayHashMap(
+    utils.StringInterner.Idx,
+    assembly.Operand.Offset,
+);
 
 pub fn replace_pseudos(
     alloc: std.mem.Allocator,
