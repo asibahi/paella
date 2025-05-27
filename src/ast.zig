@@ -4,6 +4,18 @@ const utils = @import("utils.zig");
 pub const Identifier = union(enum) {
     name: []const u8,
     idx: utils.StringInterner.Idx,
+
+    pub fn format(
+        self: @This(),
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        switch (self) {
+            .name => |s| try writer.print("{s}", .{s}),
+            .idx => |i| try writer.print("{s}", .{i}),
+        }
+    }
 };
 
 pub const Prgm = struct {
@@ -37,7 +49,7 @@ pub const FuncDef = struct {
         const w = options.width orelse 0;
         try writer.writeByteNTimes('\t', w);
 
-        try writer.print("FUNCTION {any}\n", .{self.name});
+        try writer.print("FUNCTION {s}\n", .{self.name});
         var iter = self.block.body.constIterator(0);
         while (iter.next()) |item|
             try writer.print("{:[1]}\n", .{

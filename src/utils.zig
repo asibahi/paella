@@ -28,31 +28,24 @@ pub const StringInterner = struct {
         self.map.deinit(allocator);
     }
 
-    pub const Idx = enum(u32) {
-        _,
+    pub const Idx = struct {
+        real_idx: u32,
+        strings: *const StringInterner,
         pub fn format(
             self: @This(),
             comptime _: []const u8,
             _: std.fmt.FormatOptions,
             writer: anytype,
         ) !void {
-            try writer.print("[{d}]", .{@intFromEnum(self)});
+            try writer.print("{s}", .{self.strings.get_string(self).?});
         }
     };
-
-    pub fn get_idx(
-        self: *const StringInterner,
-        string: []const u8,
-    ) ?Idx {
-        const ret = self.map.getKeyAdapted(string, .{ .bytes = &self.bytes });
-        return @enumFromInt(ret);
-    }
 
     pub fn get_string(
         self: *const StringInterner,
         idx: Idx,
     ) ?[:0]const u8 {
-        const id_int = @intFromEnum(idx);
+        const id_int = idx.real_idx;
         if (!self.map.containsContext(id_int, .{ .bytes = &self.bytes }))
             return null;
 
@@ -73,7 +66,7 @@ pub const StringInterner = struct {
         gop.value_ptr.* = {}; // just a reminder that this is void
 
         if (gop.found_existing)
-            return @enumFromInt(gop.key_ptr.*);
+            return .{ .real_idx = gop.key_ptr.*, .strings = self };
 
         const new_id: u32 = @intCast(self.bytes.items.len);
 
@@ -81,7 +74,7 @@ pub const StringInterner = struct {
         self.bytes.appendAssumeCapacity(0);
         gop.key_ptr.* = new_id;
 
-        return @enumFromInt(new_id);
+        return .{ .real_idx = new_id, .strings = self };
     }
 
     pub fn make_temporary(
