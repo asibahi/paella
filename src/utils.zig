@@ -12,7 +12,7 @@ pub fn create(
 pub const StringInterner = struct {
     bytes: std.ArrayListUnmanaged(u8),
     map: std.HashMapUnmanaged(
-        Idx,
+        u32,
         void,
         std.hash_map.StringIndexContext,
         std.hash_map.default_max_load_percentage,
@@ -28,23 +28,35 @@ pub const StringInterner = struct {
         self.map.deinit(allocator);
     }
 
-    pub const Idx = u32;
+    pub const Idx = enum(u32) {
+        _,
+        pub fn format(
+            self: @This(),
+            comptime _: []const u8,
+            _: std.fmt.FormatOptions,
+            writer: anytype,
+        ) !void {
+            try writer.print("[{d}]", .{@intFromEnum(self)});
+        }
+    };
 
     pub fn get_idx(
         self: *const StringInterner,
         string: []const u8,
     ) ?Idx {
-        return self.map.getKeyAdapted(string, .{ .bytes = &self.bytes });
+        const ret = self.map.getKeyAdapted(string, .{ .bytes = &self.bytes });
+        return @enumFromInt(ret);
     }
 
     pub fn get_string(
         self: *const StringInterner,
-        id: Idx,
+        idx: Idx,
     ) ?[:0]const u8 {
-        if (!self.map.containsContext(id, .{ .bytes = &self.bytes }))
+        const id_int = @intFromEnum(idx);
+        if (!self.map.containsContext(id_int, .{ .bytes = &self.bytes }))
             return null;
 
-        const st: [:0]const u8 = @ptrCast(self.bytes.items[id..]);
+        const st: [:0]const u8 = @ptrCast(self.bytes.items[id_int..]);
         return std.mem.sliceTo(st, 0);
     }
 
@@ -61,15 +73,15 @@ pub const StringInterner = struct {
         gop.value_ptr.* = {}; // just a reminder that this is void
 
         if (gop.found_existing)
-            return gop.key_ptr.*;
+            return @enumFromInt(gop.key_ptr.*);
 
-        const new_id: Idx = @intCast(self.bytes.items.len);
+        const new_id: u32 = @intCast(self.bytes.items.len);
 
         self.bytes.appendSliceAssumeCapacity(string);
         self.bytes.appendAssumeCapacity(0);
         gop.key_ptr.* = new_id;
 
-        return new_id;
+        return @enumFromInt(new_id);
     }
 
     pub fn make_temporary(
