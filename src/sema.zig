@@ -7,14 +7,6 @@ pub fn resolve_prgm(
     strings: *utils.StringInterner,
     prgm: *ast.Prgm,
 ) Error!void {
-    try resolve_func_def(gpa, strings, prgm.funcs.at(0));
-}
-
-fn resolve_func_def(
-    gpa: std.mem.Allocator,
-    strings: *utils.StringInterner,
-    func_def: *ast.FuncDecl,
-) Error!void {
     var variable_map: VariableMap = .empty;
     defer variable_map.deinit(gpa);
 
@@ -23,7 +15,53 @@ fn resolve_func_def(
         .strings = strings,
         .variable_map = &variable_map,
     };
-    try resolve_block(bp, null, &func_def.block.?);
+
+    var iter = prgm.funcs.iterator(0);
+    while (iter.next()) |item|
+        try resolve_func_decl(bp, item);
+}
+
+fn resolve_func_decl(
+    bp: Boilerplate,
+    func_decl: *ast.FuncDecl,
+) Error!void {
+    if (bp.variable_map.get(func_decl.name)) |prev|
+        if (prev.scope == .local and prev.linkage != .external)
+            return error.DuplicateFunctionDecl;
+
+    try bp.variable_map.put(bp.gpa, func_decl.name, .{
+        .name = try bp.strings.get_or_put(bp.gpa, func_decl.name),
+        .scope = .local,
+        .linkage = .external,
+    });
+
+    var variable_map = try bp.variable_map.clone(bp.gpa);
+    defer variable_map.deinit(bp.gpa);
+
+    var iter = variable_map.valueIterator();
+    while (iter.next()) |value|
+        value.globalize();
+
+    const inner_bp = bp.into_ineer(&variable_map);
+
+    var params = func_decl.params.iterator(0);
+    while (params.next()) |param| {
+        if (inner_bp.variable_map.get(param.name)) |entry|
+            if (entry.scope == .local)
+                return error.DuplicateVariableDecl;
+
+        const unique_name = try inner_bp.make_temporary(param.name);
+        try inner_bp.variable_map.put(
+            inner_bp.gpa,
+            param.name,
+            .{ .name = unique_name },
+        );
+
+        param.* = .{ .idx = unique_name };
+    }
+
+    if (func_decl.block) |*block|
+        try resolve_block(inner_bp, null, block);
 }
 
 fn resolve_block(
@@ -34,11 +72,17 @@ fn resolve_block(
     var iter = block.body.iterator(0);
     while (iter.next()) |item| switch (item.*) {
         .S => |*s| try resolve_stmt(bp, current_label, s),
-        .D => |*d| try resolve_decl(bp, &d.V),
+        .D => |*d| switch (d.*) {
+            .F => |*f| if (f.block) |_|
+                return error.IllegalFuncDefinition
+            else
+                try resolve_func_decl(bp, f),
+            .V => |*v| try resolve_var_decl(bp, v),
+        },
     };
 }
 
-fn resolve_decl(
+fn resolve_var_decl(
     bp: Boilerplate,
     decl: *ast.VarDecl,
 ) Error!void {
@@ -81,13 +125,9 @@ fn resolve_stmt(
 
             var iter = variable_map.valueIterator();
             while (iter.next()) |value|
-                value.* = .{ .name = value.name, .scope = .parent };
+                value.globalize();
 
-            const inner_bp: Boilerplate = .{
-                .gpa = bp.gpa,
-                .strings = bp.strings,
-                .variable_map = &variable_map,
-            };
+            const inner_bp = bp.into_ineer(&variable_map);
 
             switch (stmt.*) {
                 .compound => |*b| try resolve_block(inner_bp, current_label, b),
@@ -95,7 +135,7 @@ fn resolve_stmt(
                     const label = try bp.make_temporary("for");
                     f.label = label;
                     switch (f.init) {
-                        .decl => |d| try resolve_decl(inner_bp, d),
+                        .decl => |d| try resolve_var_decl(inner_bp, d),
                         .expr => |e| try resolve_expr(inner_bp, e),
                         .none => {},
                     }
@@ -125,6 +165,12 @@ fn resolve_expr(
             .{ .@"var" = .{ .idx = un.name } }
         else
             return error.UndeclaredVariable,
+        .func_call => |*f| if (bp.variable_map.get(f.@"0".name)) |entry| {
+            f.@"0" = .{ .idx = entry.name };
+            var iter = f.@"1".iterator(0);
+            while (iter.next()) |item|
+                try resolve_expr(bp, item);
+        } else return error.UndeclaredFunction,
         .unop_neg,
         .unop_not,
         .unop_lnot,
@@ -151,7 +197,8 @@ fn resolve_expr(
             try resolve_expr(bp, t.@"1");
             try resolve_expr(bp, t.@"2");
         },
-        else => @panic("unimplemented"),
+
+        // else => @panic("unimplemented"),
     }
 }
 
@@ -166,6 +213,14 @@ const Boilerplate = struct {
     ) Error!utils.StringInterner.Idx {
         return try self.strings.make_temporary(self.gpa, prefix);
     }
+
+    fn into_ineer(self: @This(), map: *VariableMap) @This() {
+        return .{
+            .gpa = self.gpa,
+            .strings = self.strings,
+            .variable_map = map,
+        };
+    }
 };
 
 const VariableMap = std.StringHashMapUnmanaged(
@@ -175,12 +230,24 @@ const VariableMap = std.StringHashMapUnmanaged(
 const Entry = struct {
     name: utils.StringInterner.Idx,
     scope: enum { local, parent } = .local,
+    linkage: enum { none, external } = .none,
+
+    fn globalize(self: *@This()) void {
+        self.* = .{
+            .name = self.name,
+            .linkage = self.linkage,
+            .scope = .parent,
+        };
+    }
 };
 
 const Error = std.mem.Allocator.Error || std.fmt.BufPrintError ||
     error{
         DuplicateVariableDecl,
+        DuplicateFunctionDecl,
         InvalidLValue,
         UndeclaredVariable,
+        UndeclaredFunction,
         BreakOrContinueOutsideLoop,
+        IllegalFuncDefinition,
     };
