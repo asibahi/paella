@@ -10,10 +10,14 @@ pub fn resolve_prgm(
     var variable_map: VariableMap = .empty;
     defer variable_map.deinit(gpa);
 
+    var type_map: TypeMap = .empty;
+    defer type_map.deinit(gpa);
+
     const bp: Boilerplate = .{
         .gpa = gpa,
         .strings = strings,
         .variable_map = &variable_map,
+        .type_map = &type_map,
     };
 
     var iter = prgm.funcs.iterator(0);
@@ -27,13 +31,32 @@ fn resolve_func_decl(
 ) Error!void {
     if (bp.variable_map.get(func_decl.name)) |prev|
         if (prev.scope == .local and prev.linkage != .external)
-            return error.DuplicateFunctionDecl;
+            return error.DuplicateDecl;
 
+    const nname = try bp.strings.get_or_put(bp.gpa, func_decl.name);
     try bp.variable_map.put(bp.gpa, func_decl.name, .{
-        .name = try bp.strings.get_or_put(bp.gpa, func_decl.name),
+        .name = nname,
         .scope = .local,
         .linkage = .external,
     });
+    {
+        const gop = try bp.type_map.getOrPut(bp.gpa, nname.real_idx);
+        if (gop.found_existing) {
+            if (gop.value_ptr.* != .func or
+                gop.value_ptr.func.arity != func_decl.params.count())
+            {
+                return error.TypeError;
+            } else if (gop.value_ptr.func.defined and
+                func_decl.block != null)
+            {
+                return error.DuplicateFunctionDef;
+            }
+        } else gop.value_ptr.* = .{ .func = .{
+            .arity = func_decl.params.count(),
+            .defined = func_decl.block != null,
+        } };
+    }
+    // func_decl.name = .{ .idx = nname };
 
     var variable_map = try bp.variable_map.clone(bp.gpa);
     defer variable_map.deinit(bp.gpa);
@@ -48,7 +71,7 @@ fn resolve_func_decl(
     while (params.next()) |param| {
         if (inner_bp.variable_map.get(param.name)) |entry|
             if (entry.scope == .local)
-                return error.DuplicateVariableDecl;
+                return error.DuplicateDecl;
 
         const unique_name = try inner_bp.make_temporary(param.name);
         try inner_bp.variable_map.put(
@@ -56,6 +79,13 @@ fn resolve_func_decl(
             param.name,
             .{ .name = unique_name },
         );
+        { // TODO DRY
+            const gop = try bp.type_map.getOrPut(bp.gpa, unique_name.real_idx);
+            if (gop.found_existing) {
+                if (gop.value_ptr.* != .int)
+                    return error.TypeError;
+            } else gop.value_ptr.* = .int;
+        }
 
         param.* = .{ .idx = unique_name };
     }
@@ -87,10 +117,18 @@ fn resolve_var_decl(
     decl: *ast.VarDecl,
 ) Error!void {
     if (bp.variable_map.get(decl.name.name)) |entry| if (entry.scope == .local)
-        return error.DuplicateVariableDecl;
+        return error.DuplicateDecl;
 
     const unique_name = try bp.make_temporary(decl.name.name);
     try bp.variable_map.put(bp.gpa, decl.name.name, .{ .name = unique_name });
+
+    { // TODO DRY
+        const gop = try bp.type_map.getOrPut(bp.gpa, unique_name.real_idx);
+        if (gop.found_existing) {
+            if (gop.value_ptr.* != .int)
+                return error.TypeError;
+        } else gop.value_ptr.* = .int;
+    }
 
     if (decl.init) |expr|
         try resolve_expr(bp, expr);
@@ -161,16 +199,25 @@ fn resolve_expr(
             try resolve_expr(bp, b.@"0");
             try resolve_expr(bp, b.@"1");
         },
-        .@"var" => |name| expr.* = if (bp.variable_map.get(name.name)) |un|
-            .{ .@"var" = .{ .idx = un.name } }
-        else
-            return error.UndeclaredVariable,
+        .@"var" => |name| if (bp.variable_map.get(name.name)) |un| {
+            if (bp.type_map.get(un.name.real_idx).? == .int)
+                expr.* = .{ .@"var" = .{ .idx = un.name } }
+            else
+                return error.TypeError;
+        } else return error.UndeclaredVariable,
+
         .func_call => |*f| if (bp.variable_map.get(f.@"0".name)) |entry| {
-            f.@"0" = .{ .idx = entry.name };
-            var iter = f.@"1".iterator(0);
-            while (iter.next()) |item|
-                try resolve_expr(bp, item);
+            const t = bp.type_map.get(entry.name.real_idx).?;
+            if (t == .func and
+                t.func.arity == f.@"1".count())
+            {
+                f.@"0" = .{ .idx = entry.name };
+                var iter = f.@"1".iterator(0);
+                while (iter.next()) |item|
+                    try resolve_expr(bp, item);
+            } else return error.TypeError;
         } else return error.UndeclaredFunction,
+
         .unop_neg,
         .unop_not,
         .unop_lnot,
@@ -206,6 +253,7 @@ const Boilerplate = struct {
     gpa: std.mem.Allocator,
     strings: *utils.StringInterner,
     variable_map: *VariableMap,
+    type_map: *TypeMap,
 
     fn make_temporary(
         self: @This(),
@@ -219,6 +267,7 @@ const Boilerplate = struct {
             .gpa = self.gpa,
             .strings = self.strings,
             .variable_map = map,
+            .type_map = self.type_map,
         };
     }
 };
@@ -241,11 +290,25 @@ const Entry = struct {
     }
 };
 
+const TypeMap = std.AutoHashMapUnmanaged(
+    u32,
+    Type,
+);
+
+const Type = union(enum) {
+    int,
+    func: struct {
+        arity: usize,
+        defined: bool,
+    },
+};
+
 const Error = std.mem.Allocator.Error || std.fmt.BufPrintError ||
     error{
-        DuplicateVariableDecl,
-        DuplicateFunctionDecl,
+        DuplicateDecl,
+        DuplicateFunctionDef,
         InvalidLValue,
+        TypeError,
         UndeclaredVariable,
         UndeclaredFunction,
         BreakOrContinueOutsideLoop,
