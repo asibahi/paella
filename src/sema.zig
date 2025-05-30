@@ -68,27 +68,8 @@ fn resolve_func_decl(
     const inner_bp = bp.into_ineer(&variable_map);
 
     var params = func_decl.params.iterator(0);
-    while (params.next()) |param| {
-        if (inner_bp.variable_map.get(param.name)) |entry|
-            if (entry.scope == .local)
-                return error.DuplicateDecl;
-
-        const unique_name = try inner_bp.make_temporary(param.name);
-        try inner_bp.variable_map.put(
-            inner_bp.gpa,
-            param.name,
-            .{ .name = unique_name },
-        );
-        { // TODO DRY
-            const gop = try bp.type_map.getOrPut(bp.gpa, unique_name.real_idx);
-            if (gop.found_existing) {
-                if (gop.value_ptr.* != .int)
-                    return error.TypeError;
-            } else gop.value_ptr.* = .int;
-        }
-
-        param.* = .{ .idx = unique_name };
-    }
+    while (params.next()) |param|
+        try resolve_var_decl(.param, inner_bp, param);
 
     if (func_decl.block) |*block|
         try resolve_block(inner_bp, null, block);
@@ -107,22 +88,30 @@ fn resolve_block(
                 return error.IllegalFuncDefinition
             else
                 try resolve_func_decl(bp, f),
-            .V => |*v| try resolve_var_decl(bp, v),
+            .V => |*v| try resolve_var_decl(.@"var", bp, v),
         },
     };
 }
 
 fn resolve_var_decl(
+    comptime T: enum { param, @"var" },
     bp: Boilerplate,
-    decl: *ast.VarDecl,
+    item: switch (T) {
+        .@"var" => *ast.VarDecl,
+        .param => *ast.Identifier,
+    },
 ) Error!void {
-    if (bp.variable_map.get(decl.name.name)) |entry| if (entry.scope == .local)
+    const identifier = switch (T) {
+        .@"var" => &item.name,
+        .param => item,
+    };
+    if (bp.variable_map.get(identifier.name)) |entry| if (entry.scope == .local)
         return error.DuplicateDecl;
 
-    const unique_name = try bp.make_temporary(decl.name.name);
-    try bp.variable_map.put(bp.gpa, decl.name.name, .{ .name = unique_name });
+    const unique_name = try bp.make_temporary(identifier.name);
+    try bp.variable_map.put(bp.gpa, identifier.name, .{ .name = unique_name });
 
-    { // TODO DRY
+    { // TYPE CHECKING
         const gop = try bp.type_map.getOrPut(bp.gpa, unique_name.real_idx);
         if (gop.found_existing) {
             if (gop.value_ptr.* != .int)
@@ -130,9 +119,11 @@ fn resolve_var_decl(
         } else gop.value_ptr.* = .int;
     }
 
-    if (decl.init) |expr|
-        try resolve_expr(bp, expr);
-    decl.name = .{ .idx = unique_name };
+    identifier.* = .{ .idx = unique_name };
+
+    if (T == .@"var")
+        if (item.init) |expr|
+            try resolve_expr(bp, expr);
 }
 
 fn resolve_stmt(
@@ -173,7 +164,7 @@ fn resolve_stmt(
                     const label = try bp.make_temporary("for");
                     f.label = label;
                     switch (f.init) {
-                        .decl => |d| try resolve_var_decl(inner_bp, d),
+                        .decl => |d| try resolve_var_decl(.@"var", inner_bp, d),
                         .expr => |e| try resolve_expr(inner_bp, e),
                         .none => {},
                     }
