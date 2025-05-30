@@ -1,21 +1,25 @@
 const std = @import("std");
-
 const ast = @import("ast.zig");
 const ir = @import("ir.zig");
-
 const utils = @import("utils.zig");
 
-pub fn prgm_emit_it(
+pub fn prgm_emit_ir(
     alloc: std.mem.Allocator,
     strings: *utils.StringInterner,
     prgm: *const ast.Prgm,
 ) Error!ir.Prgm {
-    const func_def = try utils.create(
+    var funcs: std.ArrayListUnmanaged(ir.FuncDef) = try .initCapacity(
         alloc,
-        try func_def_emit_ir(alloc, strings, prgm.funcs.at(0)),
+        prgm.funcs.len,
     );
 
-    return .{ .func_def = func_def };
+    var iter = prgm.funcs.constIterator(0);
+    while (iter.next()) |f| if (f.block) |_| {
+        const fir = try func_def_emit_ir(alloc, strings, f);
+        try funcs.append(alloc, fir);
+    };
+
+    return .{ .funcs = funcs };
 }
 
 fn func_def_emit_ir(
@@ -24,8 +28,17 @@ fn func_def_emit_ir(
     func_def: *const ast.FuncDecl,
 ) Error!ir.FuncDef {
     const name = try strings.get_or_put(alloc, func_def.name);
-    var instrs: std.ArrayListUnmanaged(ir.Instr) = .empty;
 
+    var params: std.ArrayListUnmanaged(utils.StringInterner.Idx) = try .initCapacity(
+        alloc,
+        func_def.params.count(),
+    );
+    var iter = func_def.params.constIterator(0);
+
+    while (iter.next()) |param|
+        try params.append(alloc, param.idx);
+
+    var instrs: std.ArrayListUnmanaged(ir.Instr) = .empty;
     const bp: Boilerplate = .{
         .alloc = alloc,
         .strings = strings,
@@ -35,7 +48,7 @@ fn func_def_emit_ir(
     try block_emit_ir(bp, &func_def.block.?);
     try instrs.append(alloc, .{ .ret = .{ .constant = 0 } });
 
-    return .{ .name = name, .instrs = instrs };
+    return .{ .name = name, .params = params, .instrs = instrs };
 }
 
 fn block_emit_ir(
@@ -45,11 +58,11 @@ fn block_emit_ir(
     var iter = block.body.constIterator(0);
     while (iter.next()) |item| switch (item.*) {
         .S => |*s| try stmt_emit_ir(bp, s),
-        .D => |*d| try decl_emit_ir(bp, &d.V),
+        .D => |d| if (d == .V) try var_decl_emit_ir(bp, &d.V),
     };
 }
 
-fn decl_emit_ir(
+fn var_decl_emit_ir(
     bp: Boilerplate,
     decl: *const ast.VarDecl,
 ) Error!void {
@@ -112,7 +125,7 @@ fn stmt_emit_ir(
             const cn = try bp.augment_label("cn", f.label.?);
 
             switch (f.init) {
-                .decl => |d| try decl_emit_ir(bp, d),
+                .decl => |d| try var_decl_emit_ir(bp, d),
                 .expr => |e| _ = try expr_emit_ir(bp, e),
                 .none => {},
             }
@@ -281,7 +294,29 @@ fn expr_emit_ir(
 
             return dst;
         },
-        else => @panic("todo"),
+        .func_call => |f| {
+            var args: std.ArrayListUnmanaged(ir.Value) = try .initCapacity(
+                bp.alloc,
+                f.@"1".count(),
+            );
+
+            const dst: ir.Value = .{ .variable = try bp.make_temporary("fn") };
+
+            var iter = f.@"1".constIterator(0);
+            while (iter.next()) |e| {
+                const v = try expr_emit_ir(bp, e);
+                try args.append(bp.alloc, v);
+            }
+
+            try bp.append(.{ .func_call = .{
+                .name = f.@"0".idx,
+                .args = args,
+                .dst = dst,
+            } });
+
+            return dst;
+        },
+        // else => @panic("todo"),
     }
 }
 

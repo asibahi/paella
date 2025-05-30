@@ -9,12 +9,15 @@ pub fn prgm_to_asm(
     alloc: std.mem.Allocator,
     prgm: ir.Prgm,
 ) !assembly.Prgm {
-    const func_def = try utils.create(
-        alloc,
-        try func_def_to_asm(alloc, prgm.func_def.*),
-    );
+    _ = alloc;
+    _ = prgm;
+    if (true) @panic("todo");
+    // const func_def = try utils.create(
+    //     alloc,
+    //     try func_def_to_asm(alloc, prgm.func_def.*),
+    // );
 
-    return .{ .func_def = func_def };
+    // return .{ .func_def = func_def };
 }
 
 fn func_def_to_asm(

@@ -1,12 +1,13 @@
 const std = @import("std");
 const utils = @import("utils.zig");
+const Identifier = utils.StringInterner.Idx;
 
 pub const Prgm = struct {
-    func_def: *FuncDef,
+    funcs: std.ArrayListUnmanaged(FuncDef),
 
     pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
-        self.func_def.deinit(alloc);
-        alloc.destroy(self.func_def);
+        for (self.funcs.items) |*func| func.deinit(alloc);
+        self.funcs.deinit(alloc);
 
         // string interner manages its own memory thanks.
     }
@@ -18,19 +19,23 @@ pub const Prgm = struct {
         writer: anytype,
     ) !void {
         try writer.print("PROGRAM\n", .{});
-        try writer.print("{:[1]}", .{
-            self.func_def,
-            (options.width orelse 0) + 1,
-        });
+        for (self.funcs.items) |func|
+            try writer.print("{:[1]}", .{
+                func,
+                (options.width orelse 0) + 1,
+            });
         try writer.writeByteNTimes('=', 32);
     }
 };
 
 pub const FuncDef = struct {
-    name: utils.StringInterner.Idx,
+    name: Identifier,
+    params: std.ArrayListUnmanaged(Identifier),
     instrs: std.ArrayListUnmanaged(Instr),
 
     fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
+        for (self.instrs.items) |*i| i.deinit(alloc);
+        self.params.deinit(alloc);
         self.instrs.deinit(alloc);
     }
 
@@ -43,7 +48,7 @@ pub const FuncDef = struct {
         const w = options.width orelse 0;
         try writer.writeByteNTimes('\t', w);
 
-        try writer.print("FUNCTION {any}\n", .{self.name});
+        try writer.print("FUNCTION {}\n", .{self.name});
         for (self.instrs.items) |instr|
             try writer.print("{:[1]}\n", .{
                 instr,
@@ -56,15 +61,15 @@ pub const Instr = union(enum) {
     ret: Value,
 
     copy: Unary,
-    jump: utils.StringInterner.Idx,
+    jump: Identifier,
     jump_z: JumpIf,
     jump_nz: JumpIf,
 
-    label: utils.StringInterner.Idx,
+    label: Identifier,
 
     unop_neg: Unary,
     unop_not: Unary,
-    unop_lnot: Unary, // <-- new
+    unop_lnot: Unary,
 
     binop_add: Binary,
     binop_sub: Binary,
@@ -78,6 +83,19 @@ pub const Instr = union(enum) {
     binop_le: Binary,
     binop_gt: Binary,
     binop_ge: Binary,
+
+    func_call: struct {
+        name: Identifier,
+        args: std.ArrayListUnmanaged(Value),
+        dst: Value,
+    },
+
+    fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
+        switch (self.*) {
+            .func_call => |*f| f.args.deinit(alloc),
+            else => {},
+        }
+    }
 
     pub const Unary = struct {
         src: Value,
@@ -100,9 +118,9 @@ pub const Instr = union(enum) {
 
     pub const JumpIf = struct {
         cond: Value,
-        target: utils.StringInterner.Idx,
+        target: Identifier,
 
-        pub fn init(cond: Value, target: utils.StringInterner.Idx) @This() {
+        pub fn init(cond: Value, target: Identifier) @This() {
             return .{ .cond = cond, .target = target };
         }
     };
@@ -142,13 +160,23 @@ pub const Instr = union(enum) {
             .binop_le => |b| try writer.print("{[dst]} <- {[src1]} <= {[src2]}", b),
             .binop_gt => |b| try writer.print("{[dst]} <- {[src1]} > {[src2]}", b),
             .binop_ge => |b| try writer.print("{[dst]} <- {[src1]} >= {[src2]}", b),
+
+            .func_call => |f| {
+                try writer.print("{} <- {}(", .{ f.dst, f.name });
+                for (f.args.items, 0..) |arg, idx|
+                    try writer.print("{s}{}", .{
+                        if (idx > 0) ", " else "",
+                        arg,
+                    });
+                try writer.writeByte(')');
+            },
         }
     }
 };
 
 pub const Value = union(enum) {
     constant: u64,
-    variable: utils.StringInterner.Idx,
+    variable: Identifier,
 
     pub fn format(
         self: @This(),

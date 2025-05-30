@@ -98,7 +98,7 @@ pub fn run(
                 return;
             }
 
-            break :parse try ir.prgm_emit_it(gpa, &strings, &ast);
+            break :parse try ir.prgm_emit_ir(gpa, &strings, &ast);
         };
 
         var prgm_asm = asm_gen: {
