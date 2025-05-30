@@ -10,7 +10,7 @@ pub const Prgm = struct {
         options: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        try writer.print("PRORGAM\n", .{});
+        try writer.print("PROGRAM\n", .{});
 
         var iter = self.funcs.constIterator(0);
         while (iter.next()) |func| {

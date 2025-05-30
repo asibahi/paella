@@ -74,9 +74,10 @@ pub fn build(b: *std.Build) !void {
 
     { // `zig build eye` command
         const eye_step = b.step("eye", "Eye test all the files in a given directory");
+        const fail = b.option(bool, "fail", "failing tests") orelse false;
 
         if (b.option(std.Build.LazyPath, "folder", "Path to eye")) |lazy|
-            try walk_tree(b, exe, eye_step, lazy)
+            try walk_tree(b, exe, eye_step, lazy, fail)
         else
             eye_step.dependOn(&b.addFail("folder needed for eye").step);
     }
@@ -87,6 +88,7 @@ fn walk_tree(
     exe: *std.Build.Step.Compile,
     eye_step: *std.Build.Step,
     lazy: std.Build.LazyPath,
+    fail: bool,
 ) !void {
     const path = lazy.getPath3(b, null);
     const dir = try path.openDir("", .{ .iterate = true });
@@ -100,6 +102,7 @@ fn walk_tree(
 
         const bat = b.addSystemCommand(&.{ "bat", file });
         bat.addArg("--paging=never");
+        bat.addArg("--style=rule,header");
         bat.setCwd(lazy);
         bat.stdio = .inherit;
 
@@ -110,7 +113,8 @@ fn walk_tree(
         run_cmd.setCwd(lazy);
         run_cmd.addArg(file);
         run_cmd.addArgs(b.args orelse &.{});
-        run_cmd.stdio = .inherit;
+        if (fail)
+            run_cmd.expectExitCode(1);
 
         run_cmd.step.dependOn(b.getInstallStep());
         run_cmd.step.dependOn(&bat.step);

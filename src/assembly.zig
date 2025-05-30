@@ -34,7 +34,7 @@ pub const Prgm = struct {
         if (std.mem.eql(u8, fmt, "gen"))
             try writer.print("{gen}", .{self.func_def})
         else {
-            try writer.print("PRORGAM\n", .{});
+            try writer.print("PROGRAM\n", .{});
             try writer.print("{:[1]}", .{
                 self.func_def,
                 (options.width orelse 0) + 1,

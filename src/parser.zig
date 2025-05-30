@@ -16,7 +16,7 @@ pub fn parse_prgm(
         try funcs.append(arena, func_decl);
     }
 
-    // now that we are done, check the tokenizer is emoty.
+    // now that we are done, check the tokenizer is empty.
     if (tokens.next()) |_| return error.ExtraJunk;
 
     return .{ .funcs = funcs };
