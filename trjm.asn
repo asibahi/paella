@@ -1,0 +1,80 @@
+	.globl  _fib
+	.text
+_fib:
+	pushq   %rbp
+	movq    %rsp,   %rbp
+	subq    $48,    %rsp
+	movl    %edi,   -4(%rbp)
+	cmpl    $0,     -4(%rbp)
+	movl    $0,     -8(%rbp)
+	sete    -8(%rbp)
+	cmpl    $0,     -8(%rbp)
+	jne     .Ljmp.9
+	cmpl    $1,     -4(%rbp)
+	movl    $0,     -12(%rbp)
+	sete    -12(%rbp)
+	cmpl    $0,     -12(%rbp)
+	jne     .Ljmp.9
+	movl    $0,     -16(%rbp)
+	jmp     .Lend.9
+  .Ljmp.9:
+	movl    $1,     -16(%rbp)
+  .Lend.9:
+	cmpl    $0,     -16(%rbp)
+	je      .Lelse.8
+	movl    -4(%rbp), %eax
+	movq    %rbp,   %rsp
+	popq    %rbp
+	ret
+	jmp     .Lend.8
+  .Lelse.8:
+	movl    -4(%rbp), %r10d
+	movl    %r10d,  -20(%rbp)
+	subl    $1,     -20(%rbp)
+	movl    -20(%rbp), %edi
+	call    _fib
+	movl    %eax,   -24(%rbp)
+	movl    -4(%rbp), %r10d
+	movl    %r10d,  -28(%rbp)
+	subl    $2,     -28(%rbp)
+	movl    -28(%rbp), %edi
+	call    _fib
+	movl    %eax,   -32(%rbp)
+	movl    -24(%rbp), %r10d
+	movl    %r10d,  -36(%rbp)
+	movl    -32(%rbp), %r10d
+	movl    -36(%rbp), %r11d
+	addl    %r10d,  %r11d
+	movl    %r11d,  -36(%rbp)
+	movl    -36(%rbp), %eax
+	movq    %rbp,   %rsp
+	popq    %rbp
+	ret
+  .Lend.8:
+	xorl    %eax,   %eax
+	movq    %rbp,   %rsp
+	popq    %rbp
+	ret
+	.globl  _main
+	.text
+_main:
+	pushq   %rbp
+	movq    %rsp,   %rbp
+	subq    $16,    %rsp
+	movl    $6,     -4(%rbp)
+	movl    -4(%rbp), %edi
+	call    _fib
+	movl    %eax,   -8(%rbp)
+	movl    -8(%rbp), %eax
+	movq    %rbp,   %rsp
+	popq    %rbp
+	ret
+	.literal16
+	.balign 16
+_L_neg0:
+	.quad   9223372036854775808
+	.quad   0
+	.literal8
+	.balign 8
+_L_upper_bound:
+	.quad   4890909195324358656
