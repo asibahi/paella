@@ -25,11 +25,12 @@ pub fn run(
     args: Args,
 ) !void {
     const input_path = args.path;
-    const pp_out, const asm_out, const exe =
+    const pp_out, const asm_out, const obj, const exe =
         try get_output_paths(gpa, input_path);
     defer {
         gpa.free(pp_out);
         gpa.free(asm_out);
+        gpa.free(obj);
         gpa.free(exe);
     }
 
@@ -137,7 +138,10 @@ pub fn run(
 
     { // assembler
         var child = std.process.Child.init(
-            &.{ "gcc", asm_out, "-o", exe },
+            if (args.c_flag)
+                &.{ "gcc", "-c", asm_out, "-o", obj }
+            else
+                &.{ "gcc", asm_out, "-o", exe },
             gpa,
         );
 
@@ -152,7 +156,9 @@ pub fn run(
 pub const Args = struct {
     path: [:0]const u8,
     mode: Mode,
+    c_flag: bool,
 };
+
 pub const Mode = enum {
     lex,
     parse,
@@ -169,12 +175,16 @@ pub fn parse_args() !Args {
 
     var path: ?[:0]const u8 = null;
     var mode: Mode = .compile;
+    var c_flag = false;
 
     while (args.next()) |arg| {
-        if (arg[0] == '-')
-            mode = std.meta.stringToEnum(Mode, arg[2..]) orelse
-                return error.UnrecognizedFlag
-        else if (path == null)
+        if (arg[0] == '-') {
+            if (arg[1] == 'c')
+                c_flag = true
+            else
+                mode = std.meta.stringToEnum(Mode, arg[2..]) orelse
+                    return error.UnrecognizedFlag;
+        } else if (path == null)
             path = arg
         else
             return error.PathDuplicated;
@@ -183,6 +193,7 @@ pub fn parse_args() !Args {
     return .{
         .path = path orelse return error.PathNotFound,
         .mode = mode,
+        .c_flag = c_flag,
     };
 }
 
@@ -190,6 +201,7 @@ fn get_output_paths(
     alloc: std.mem.Allocator,
     input_path: []const u8,
 ) !struct {
+    []const u8,
     []const u8,
     []const u8,
     []const u8,
@@ -205,13 +217,20 @@ fn get_output_paths(
     );
     errdefer alloc.free(pp);
 
+    const obj = try std.mem.join(
+        alloc,
+        ".",
+        &.{ exe, "o" },
+    );
+    errdefer alloc.free(obj);
+
     const @"asm" = try std.mem.join(
         alloc,
         ".",
         &.{ exe, "s" },
     );
 
-    return .{ pp, @"asm", exe };
+    return .{ pp, @"asm", obj, exe };
 }
 
 fn strip_extension(path: []const u8) []const u8 {

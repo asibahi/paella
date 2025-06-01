@@ -166,7 +166,6 @@ fn instr_to_asm(
         }),
 
         .func_call => |c| {
-
             // the return is of unknown size.
             // maximum possible size is parameter count * 2 + 4
             var ret: std.ArrayListUnmanaged(assembly.Instr) =

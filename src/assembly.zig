@@ -158,8 +158,11 @@ pub const Instr = union(enum) {
 
             .cdq => try writer.print("\tcdq", .{}),
             .allocate_stack => |d| try writer.print("\tsubq    ${d}, %rsp", .{d}),
+            .dealloc_stack => |d| try writer.print("\taddq    ${d}, %rsp", .{d}),
 
-            else => @panic("unimplemented"),
+            .push => |o| try writer.print("\tpushq   {gen:8}", .{o}),
+            .call => |s| try writer.print("\tcall    _{}", .{s}),
+            // else => @panic("unimplemented"),
         } else {
             const w = options.width orelse 0;
             try writer.writeByteNTimes('\t', w);
@@ -209,22 +212,7 @@ pub const Operand = union(enum) {
     ) !void {
         if (std.mem.eql(u8, fmt, "gen")) switch (self) {
             .imm => |i| try writer.print("${d}", .{i}),
-            .reg => |r| switch (options.width orelse 4) {
-                1 => switch (r) {
-                    .AX => try writer.print("%a1", .{}),
-                    .DX => try writer.print("%d1", .{}),
-                    .R10 => try writer.print("%r10b", .{}),
-                    .R11 => try writer.print("%r11b", .{}),
-                    else => @panic("unneeded"),
-                },
-                else => switch (r) {
-                    .AX => try writer.print("%eax", .{}),
-                    .DX => try writer.print("%edx", .{}),
-                    .R10 => try writer.print("%r10d", .{}),
-                    .R11 => try writer.print("%r11d", .{}),
-                    else => @panic("todo"),
-                },
-            },
+            .reg => |r| try emit_register(r, options.width orelse 4, writer),
             .stack => |d| try writer.print("{d}(%rsp)", .{d}),
             .pseudo => @panic("wrong code path"),
         } else {
@@ -240,6 +228,49 @@ pub const Operand = union(enum) {
         }
     }
 };
+
+fn emit_register(
+    reg: Operand.Register,
+    width: usize,
+    writer: anytype,
+) !void {
+    p: switch (width) {
+        1 => switch (reg) {
+            .AX => try writer.print("%al", .{}),
+            .DX => try writer.print("%dl", .{}),
+            .CX => try writer.print("%cl", .{}),
+            .DI => try writer.print("%dil", .{}),
+            .SI => try writer.print("%sil", .{}),
+            .R8 => try writer.print("%r8b", .{}),
+            .R9 => try writer.print("%r9b", .{}),
+            .R10 => try writer.print("%r10b", .{}),
+            .R11 => try writer.print("%r11b", .{}),
+        },
+        4 => switch (reg) {
+            .AX => try writer.print("%eax", .{}),
+            .DX => try writer.print("%edx", .{}),
+            .CX => try writer.print("%ecx", .{}),
+            .DI => try writer.print("%edi", .{}),
+            .SI => try writer.print("%esi", .{}),
+            .R8 => try writer.print("%r8d", .{}),
+            .R9 => try writer.print("%r9d", .{}),
+            .R10 => try writer.print("%r10d", .{}),
+            .R11 => try writer.print("%r11d", .{}),
+        },
+        8 => switch (reg) {
+            .AX => try writer.print("%rax", .{}),
+            .DX => try writer.print("%rdx", .{}),
+            .CX => try writer.print("%rcx", .{}),
+            .DI => try writer.print("%rdi", .{}),
+            .SI => try writer.print("%rsi", .{}),
+            .R8 => try writer.print("%r8", .{}),
+            .R9 => try writer.print("%r9", .{}),
+            .R10 => try writer.print("%r10", .{}),
+            .R11 => try writer.print("%r11", .{}),
+        },
+        else => continue :p 4, // default case
+    }
+}
 
 inline fn indent(
     comptime text: []const u8,
