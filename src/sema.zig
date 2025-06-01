@@ -20,9 +20,9 @@ pub fn resolve_prgm(
         .type_map = &type_map,
     };
 
-    var iter = prgm.funcs.iterator(0);
-    while (iter.next()) |item|
-        try resolve_func_decl(bp, item);
+    var iter = prgm.decls.iterator(0);
+    while (iter.next()) |item| if (item.* == .F)
+        try resolve_func_decl(bp, &item.F);
 }
 
 fn resolve_func_decl(

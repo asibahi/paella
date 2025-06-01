@@ -14,7 +14,6 @@ pub const Token = struct {
         .{ "return", .keyword_return },
         .{ "void", .keyword_void },
 
-        // new lines :
         .{ "if", .keyword_if },
         .{ "else", .keyword_else },
 
@@ -23,6 +22,9 @@ pub const Token = struct {
         .{ "for", .keyword_for },
         .{ "break", .keyword_break },
         .{ "continue", .keyword_continue },
+
+        .{ "static", .keyword_static },
+        .{ "extern", .keyword_extern },
     });
 
     pub fn getKeyword(bytes: []const u8) ?Tag {
@@ -72,6 +74,9 @@ pub const Token = struct {
         keyword_for,
         keyword_break,
         keyword_continue,
+
+        keyword_static,
+        keyword_extern,
 
         number_literal,
 
@@ -129,6 +134,11 @@ pub const Tokenizer = struct {
 
     pub inline fn put_back(self: *Tokenizer, token: Token) void {
         self.index = token.loc.start;
+    }
+
+    pub inline fn next_force(self: *Tokenizer) !Token {
+        return self.next() orelse
+            return error.NotEnoughJunk;
     }
 
     pub fn next(self: *Tokenizer) ?Token {

@@ -10,12 +10,12 @@ pub fn prgm_emit_ir(
 ) Error!ir.Prgm {
     var funcs: std.ArrayListUnmanaged(ir.FuncDef) = try .initCapacity(
         alloc,
-        prgm.funcs.len,
+        prgm.decls.len,
     );
 
-    var iter = prgm.funcs.constIterator(0);
-    while (iter.next()) |f| if (f.block) |_| {
-        const fir = try func_def_emit_ir(alloc, strings, f);
+    var iter = prgm.decls.constIterator(0);
+    while (iter.next()) |d| if (d.* == .F) if (d.F.block) |_| {
+        const fir = try func_def_emit_ir(alloc, strings, &d.F);
         try funcs.append(alloc, fir);
     };
 
