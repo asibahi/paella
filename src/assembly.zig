@@ -1,28 +1,30 @@
 const std = @import("std");
-
 const utils = @import("utils.zig");
+const Identifier = utils.StringInterner.Idx;
 
 const pass_pseudo = @import("asm_passes/pseudos.zig");
 const pass_fixup = @import("asm_passes/fixup.zig");
 
 pub const Prgm = struct {
-    func_def: *FuncDef,
+    funcs: std.ArrayListUnmanaged(FuncDef),
 
     pub fn fixup(
         self: *@This(),
         alloc: std.mem.Allocator,
     ) !void {
-        // this code here should reasonably live in FuncDef
-        const depth = try pass_pseudo.replace_pseudos(alloc, self);
-        try self.func_def.instrs.insert(alloc, 0, .{
-            .allocate_stack = @abs(depth),
-        });
-        try pass_fixup.fixup_instrs(alloc, self);
+        for (self.funcs.items) |*func| {
+            try pass_pseudo.replace_pseudos(alloc, func);
+            try pass_fixup.fixup_instrs(alloc, func);
+        }
     }
 
-    pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
-        self.func_def.deinit(alloc);
-        alloc.destroy(self.func_def);
+    pub fn deinit(
+        self: *@This(),
+        alloc: std.mem.Allocator,
+    ) void {
+        for (self.funcs.items) |*func|
+            func.deinit(alloc);
+        self.funcs.deinit(alloc);
     }
 
     pub fn format(
@@ -31,22 +33,25 @@ pub const Prgm = struct {
         options: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        if (std.mem.eql(u8, fmt, "gen"))
-            try writer.print("{gen}", .{self.func_def})
-        else {
+        if (std.mem.eql(u8, fmt, "gen")) {
+            for (self.funcs.items) |func|
+                try writer.print("{" ++ fmt ++ "}", .{func});
+        } else {
             try writer.print("PROGRAM\n", .{});
-            try writer.print("{:[1]}", .{
-                self.func_def,
-                (options.width orelse 0) + 1,
-            });
+            for (self.funcs.items) |func|
+                try writer.print("{:[1]}", .{
+                    func,
+                    (options.width orelse 0) + 1,
+                });
         }
         try writer.writeByteNTimes(';', 32); // `;` is a comment in assembly.
     }
 };
 
 pub const FuncDef = struct {
-    name: utils.StringInterner.Idx,
+    name: Identifier,
     instrs: std.ArrayListUnmanaged(Instr),
+    depth: Instr.Depth = 0,
 
     pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
         self.instrs.deinit(alloc);
@@ -87,10 +92,10 @@ pub const Instr = union(enum) {
     ret: void,
 
     cmp: Mov,
-    jmp: utils.StringInterner.Idx,
-    jmp_cc: struct { CondCode, utils.StringInterner.Idx },
+    jmp: Identifier,
+    jmp_cc: struct { CondCode, Identifier },
     set_cc: struct { CondCode, Operand },
-    label: utils.StringInterner.Idx,
+    label: Identifier,
 
     // unary operations
     neg: Operand,
@@ -104,6 +109,10 @@ pub const Instr = union(enum) {
 
     cdq: void,
     allocate_stack: Depth,
+    dealloc_stack: Depth,
+
+    push: Operand,
+    call: Identifier,
 
     const Mov = struct {
         src: Operand,
@@ -150,7 +159,7 @@ pub const Instr = union(enum) {
             .cdq => try writer.print("\tcdq", .{}),
             .allocate_stack => |d| try writer.print("\tsubq    ${d}, %rsp", .{d}),
 
-            // else => @panic("unimplemented"),
+            else => @panic("unimplemented"),
         } else {
             const w = options.width orelse 0;
             try writer.writeByteNTimes('\t', w);
@@ -171,8 +180,13 @@ pub const Instr = union(enum) {
                 .sub => |m| try writer.print("sub\t{[src]} -> {[dst]}", m),
                 .mul => |m| try writer.print("mul\t{[src]} -> {[dst]}", m),
                 .idiv => |o| try writer.print("idiv\t{}", .{o}),
+
                 .cdq => try writer.print("cdq", .{}),
                 .allocate_stack => |d| try writer.print("allocate\t{d}", .{d}),
+                .dealloc_stack => |d| try writer.print("deallocate\t{d}", .{d}),
+
+                .push => |o| try writer.print("push\t{}", .{o}),
+                .call => |s| try writer.print("call\t.L{}", .{s}),
             }
         }
     }
@@ -181,10 +195,10 @@ pub const Instr = union(enum) {
 pub const Operand = union(enum) {
     imm: u64,
     reg: Register,
-    pseudo: utils.StringInterner.Idx,
+    pseudo: Identifier,
     stack: Offset,
 
-    pub const Register = enum { AX, DX, R10, R11 };
+    pub const Register = enum { AX, CX, DX, DI, SI, R8, R9, R10, R11 };
     pub const Offset = i64;
 
     pub fn format(
@@ -195,16 +209,21 @@ pub const Operand = union(enum) {
     ) !void {
         if (std.mem.eql(u8, fmt, "gen")) switch (self) {
             .imm => |i| try writer.print("${d}", .{i}),
-            .reg => |r| if (options.width == 1) switch (r) {
-                .AX => try writer.print("%a1", .{}),
-                .DX => try writer.print("%d1", .{}),
-                .R10 => try writer.print("%r10b", .{}),
-                .R11 => try writer.print("%r11b", .{}),
-            } else switch (r) {
-                .AX => try writer.print("%eax", .{}),
-                .DX => try writer.print("%edx", .{}),
-                .R10 => try writer.print("%r10d", .{}),
-                .R11 => try writer.print("%r11d", .{}),
+            .reg => |r| switch (options.width orelse 4) {
+                1 => switch (r) {
+                    .AX => try writer.print("%a1", .{}),
+                    .DX => try writer.print("%d1", .{}),
+                    .R10 => try writer.print("%r10b", .{}),
+                    .R11 => try writer.print("%r11b", .{}),
+                    else => @panic("unneeded"),
+                },
+                else => switch (r) {
+                    .AX => try writer.print("%eax", .{}),
+                    .DX => try writer.print("%edx", .{}),
+                    .R10 => try writer.print("%r10d", .{}),
+                    .R11 => try writer.print("%r11d", .{}),
+                    else => @panic("todo"),
+                },
             },
             .stack => |d| try writer.print("{d}(%rsp)", .{d}),
             .pseudo => @panic("wrong code path"),
@@ -229,11 +248,11 @@ inline fn indent(
         var iter = std.mem.splitScalar(u8, text, '\n');
         var res: []const u8 = "";
 
-        while (iter.next()) |line|
-            res = if (line.len > 0 and !std.mem.endsWith(u8, line, ":"))
-                res ++ "\t" ++ line ++ "\n"
-            else
-                res ++ line ++ "\n";
+        while (iter.next()) |line| {
+            const tab = if (line.len == 0 or
+                std.mem.endsWith(u8, line, ":")) "" else "\t";
+            res = res ++ tab ++ line ++ "\n";
+        }
 
         return res[0 .. res.len - 1];
     }

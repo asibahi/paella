@@ -3,17 +3,17 @@ const assembly = @import("../assembly.zig");
 
 pub fn fixup_instrs(
     alloc: std.mem.Allocator,
-    prgm: *assembly.Prgm,
+    func_def: *assembly.FuncDef,
 ) !void {
     var out: std.ArrayListUnmanaged(assembly.Instr) = try .initCapacity(
         alloc,
-        prgm.func_def.instrs.capacity,
+        func_def.instrs.capacity,
     );
     defer {
         std.mem.swap(
             std.ArrayListUnmanaged(assembly.Instr),
             &out,
-            &prgm.func_def.instrs,
+            &func_def.instrs,
         );
         out.deinit(alloc);
     }
@@ -30,7 +30,7 @@ pub fn fixup_instrs(
         legal,
     };
 
-    for (prgm.func_def.instrs.items) |instr| {
+    for (func_def.instrs.items) |instr| {
         state: switch (State.start) {
             .start => switch (instr) {
                 .mov => |m| if (m.src == .stack and m.dst == .stack)

@@ -1,38 +1,57 @@
 const std = @import("std");
-
 const ir = @import("ir.zig");
 const assembly = @import("assembly.zig");
-
 const utils = @import("utils.zig");
+
+const REGISTERS: [6]assembly.Operand.Register =
+    .{ .DI, .SI, .DX, .CX, .R8, .R9 };
 
 pub fn prgm_to_asm(
     alloc: std.mem.Allocator,
     prgm: ir.Prgm,
 ) !assembly.Prgm {
-    _ = alloc;
-    _ = prgm;
-    if (true) @panic("todo");
-    // const func_def = try utils.create(
-    //     alloc,
-    //     try func_def_to_asm(alloc, prgm.func_def.*),
-    // );
+    var funcs: std.ArrayListUnmanaged(assembly.FuncDef) = try .initCapacity(
+        alloc,
+        prgm.funcs.items.len,
+    );
 
-    // return .{ .func_def = func_def };
+    for (prgm.funcs.items) |func|
+        try funcs.append(
+            alloc,
+            try func_def_to_asm(alloc, func),
+        );
+
+    return .{ .funcs = funcs };
 }
 
 fn func_def_to_asm(
     alloc: std.mem.Allocator,
     func_def: ir.FuncDef,
 ) !assembly.FuncDef {
-    var arena_allocator = std.heap.ArenaAllocator.init(alloc);
-    defer arena_allocator.deinit();
-    const arena = arena_allocator.allocator();
+    var scratch = std.heap.ArenaAllocator.init(alloc);
+    defer scratch.deinit();
 
     var instrs = std.ArrayListUnmanaged(assembly.Instr).empty;
 
+    for (func_def.params.items, 0..) |param, idx|
+        if (idx < REGISTERS.len)
+            try instrs.append(alloc, .{ .mov = .init(
+                .{ .reg = REGISTERS[idx] },
+                .{ .pseudo = param },
+            ) })
+        else {
+            const offset = (idx - REGISTERS.len + 2) * 8;
+            try instrs.append(alloc, .{ .mov = .init(
+                .{ .stack = @intCast(offset) },
+                .{ .pseudo = param },
+            ) });
+        };
+
     for (func_def.instrs.items) |instr| {
         // note the different allocators for each function.
-        const ret = try instr_to_asm(arena, instr);
+        const ret = try instr_to_asm(scratch.allocator(), instr);
+        defer _ = scratch.reset(.retain_capacity); // maybe?
+
         try instrs.appendSlice(alloc, ret);
     }
 
@@ -145,6 +164,54 @@ fn instr_to_asm(
                 value_to_asm(u.dst),
             ) },
         }),
+
+        .func_call => |c| {
+
+            // the return is of unknown size.
+            // maximum possible size is parameter count * 2 + 4
+            var ret: std.ArrayListUnmanaged(assembly.Instr) =
+                try .initCapacity(alloc, c.args.items.len * 2 + 4);
+
+            const depth = c.args.items.len -| REGISTERS.len;
+            const padding: assembly.Instr.Depth =
+                if (depth % 2 == 0) 8 else 0;
+            if (padding > 0)
+                try ret.append(alloc, .{ .allocate_stack = padding }); // 1
+
+            for (c.args.items, 0..) |arg, idx| {
+                if (idx >= REGISTERS.len) break;
+
+                try ret.append(alloc, .{ .mov = .init(
+                    value_to_asm(arg),
+                    .{ .reg = REGISTERS[idx] },
+                ) });
+            }
+            for (0..depth) |idx| {
+                const v_ir = c.args.items[c.args.items.len - 1 - idx];
+                const v_asm = value_to_asm(v_ir);
+                switch (v_asm) {
+                    .imm, .reg => try ret.append(alloc, .{ .push = v_asm }),
+                    else => try ret.appendSlice(alloc, &.{
+                        .{ .mov = .init(v_asm, .{ .reg = .AX }) },
+                        .{ .push = .{ .reg = .AX } },
+                    }),
+                }
+            }
+
+            // emit call instruction
+            try ret.append(alloc, .{ .call = c.name }); // 2
+
+            const bytes_to_remove = 8 * depth + padding;
+            if (bytes_to_remove != 0)
+                try ret.append(alloc, .{ .dealloc_stack = bytes_to_remove }); // 3
+
+            try ret.append(alloc, .{ .mov = .init(
+                .{ .reg = .AX },
+                value_to_asm(c.dst),
+            ) }); // 4
+
+            return ret.items;
+        },
         // else => @panic("todo"),
     }
 }
