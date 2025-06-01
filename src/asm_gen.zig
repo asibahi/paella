@@ -173,7 +173,7 @@ fn instr_to_asm(
 
             const depth = c.args.items.len -| REGISTERS.len;
             const padding: assembly.Instr.Depth =
-                if (depth % 2 == 0) 8 else 0;
+                if (depth % 2 == 0) 0 else 8;
             if (padding > 0)
                 try ret.append(alloc, .{ .allocate_stack = padding }); // 1
 

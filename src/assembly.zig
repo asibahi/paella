@@ -189,7 +189,7 @@ pub const Instr = union(enum) {
                 .dealloc_stack => |d| try writer.print("deallocate\t{d}", .{d}),
 
                 .push => |o| try writer.print("push\t{}", .{o}),
-                .call => |s| try writer.print("call\t.L{}", .{s}),
+                .call => |s| try writer.print("call\t{}", .{s}),
             }
         }
     }
@@ -213,7 +213,7 @@ pub const Operand = union(enum) {
         if (std.mem.eql(u8, fmt, "gen")) switch (self) {
             .imm => |i| try writer.print("${d}", .{i}),
             .reg => |r| try emit_register(r, options.width orelse 4, writer),
-            .stack => |d| try writer.print("{d}(%rsp)", .{d}),
+            .stack => |d| try writer.print("{d}(%rbp)", .{d}),
             .pseudo => @panic("wrong code path"),
         } else {
             const w = options.width orelse 0;

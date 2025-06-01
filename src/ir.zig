@@ -48,7 +48,12 @@ pub const FuncDef = struct {
         const w = options.width orelse 0;
         try writer.writeByteNTimes('\t', w);
 
-        try writer.print("FUNCTION {}\n", .{self.name});
+        try writer.print("FUNCTION {} ", .{self.name});
+        for (self.params.items, 0..) |param, idx| {
+            if (idx > 0) try writer.writeAll(", ");
+            try writer.print("{}", .{param});
+        }
+        try writer.writeByte('\n');
         for (self.instrs.items) |instr|
             try writer.print("{:[1]}\n", .{
                 instr,
