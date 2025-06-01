@@ -2,7 +2,7 @@ const std = @import("std");
 const utils = @import("utils.zig");
 
 pub const Prgm = struct {
-    funcs: std.SegmentedList(FuncDecl, 0),
+    decls: std.SegmentedList(Decl, 0),
 
     pub fn format(
         self: @This(),
@@ -12,10 +12,10 @@ pub const Prgm = struct {
     ) !void {
         try writer.print("PROGRAM\n", .{});
 
-        var iter = self.funcs.constIterator(0);
-        while (iter.next()) |func| {
+        var iter = self.decls.constIterator(0);
+        while (iter.next()) |decl| {
             try writer.print("{:[1]}", .{
-                func,
+                decl,
                 (options.width orelse 0) + 1,
             });
         }
@@ -68,8 +68,11 @@ pub const Decl = union(enum) {
     }
 };
 
+pub const StorageClass = enum { static, @"extern" };
+
 pub const FuncDecl = struct {
     name: []const u8,
+    sc: ?StorageClass,
     params: std.SegmentedList(Identifier, 0),
     block: ?Block,
 
@@ -82,6 +85,7 @@ pub const FuncDecl = struct {
         const w = options.width orelse 0;
         try writer.writeByteNTimes('\t', w);
 
+        if (self.sc) |sc| try writer.print("{s} ", .{@tagName(sc)});
         try writer.print("FUNCTION {s}", .{self.name});
         {
             var iter = self.params.constIterator(0);
@@ -105,6 +109,7 @@ pub const FuncDecl = struct {
 pub const VarDecl = struct {
     name: Identifier,
     init: ?*Expr,
+    sc: ?StorageClass,
 
     pub fn format(
         self: @This(),
@@ -115,7 +120,8 @@ pub const VarDecl = struct {
         const w = options.width orelse 0;
         try writer.writeByteNTimes('\t', w);
 
-        try writer.print("int {any}", .{self.name});
+        if (self.sc) |sc| try writer.print("{s} ", .{@tagName(sc)});
+        try writer.print("{any}", .{self.name});
         if (self.init) |e|
             try writer.print(" <- {}", .{e});
     }
@@ -300,9 +306,12 @@ pub const Expr = union(enum) {
 
             .func_call => |f| {
                 try writer.print("({}", .{f.@"0"});
-                var iter = f.@"1".constIterator(0);
-                while (iter.next()) |item| {
-                    try writer.print(" {}", .{item});
+                if (f.@"1".len == 0)
+                    try writer.writeAll(" ---")
+                else {
+                    var iter = f.@"1".constIterator(0);
+                    while (iter.next()) |item|
+                        try writer.print(" {}", .{item});
                 }
                 try writer.writeByte(')');
             },

@@ -8,18 +8,15 @@ pub fn parse_prgm(
     arena: std.mem.Allocator,
     tokens: *lexer.Tokenizer,
 ) Error!ast.Prgm {
-    var funcs: std.SegmentedList(ast.FuncDecl, 0) = .{};
+    var decls: std.SegmentedList(ast.Decl, 0) = .{};
 
     while (tokens.next()) |next_token| {
         tokens.put_back(next_token);
-        const func_decl = try parse_func_decl(arena, tokens);
-        try funcs.append(arena, func_decl);
+        const decl = try parse_decl(arena, tokens, .either);
+        try decls.append(arena, decl);
     }
 
-    // now that we are done, check the tokenizer is empty.
-    if (tokens.next()) |_| return error.ExtraJunk;
-
-    return .{ .funcs = funcs };
+    return .{ .decls = decls };
 }
 
 fn parse_block(
@@ -45,115 +42,117 @@ fn parse_block_item(
     arena: std.mem.Allocator,
     tokens: *lexer.Tokenizer,
 ) Error!ast.BlockItem {
-    const current = tokens.next() orelse
-        return error.NotEnoughJunk;
+    const current = try tokens.next_force();
     tokens.put_back(current);
 
     switch (current.tag) {
-        .type_int => return .decl(try parse_decl(arena, tokens)),
+        .type_int => return .decl(try parse_decl(arena, tokens, .either)),
         else => return .stmt(try parse_stmt(arena, tokens)),
     }
+}
+
+fn parse_storage_class(
+    tokens: *lexer.Tokenizer,
+) Error!?ast.StorageClass {
+    var type_seen = false;
+    var sc: ?ast.StorageClass = null;
+
+    while (tokens.next()) |nt| switch (nt.tag) {
+        .type_int => type_seen = true,
+        .keyword_static => sc = if (sc == null)
+            .static
+        else
+            return error.InvalidStorageClass,
+        .keyword_extern => sc = if (sc == null)
+            .@"extern"
+        else
+            return error.InvalidStorageClass,
+        else => {
+            tokens.put_back(nt);
+            break;
+        },
+    } else return error.NotEnoughJunk;
+
+    if (!type_seen) return error.InvalidTypeSpecifier;
+    return sc;
 }
 
 fn parse_decl(
     arena: std.mem.Allocator,
     tokens: *lexer.Tokenizer,
+    ty: union(enum) { @"var": ?ast.StorageClass, either },
 ) Error!ast.Decl {
-    const int_token = tokens.next() orelse
-        return error.NotEnoughJunk;
-    if (int_token.tag != .type_int) return error.SyntaxError;
-    _ = try expect(.identifier, tokens);
+    const sc = if (ty == .@"var") ty.@"var" else try parse_storage_class(tokens);
+    const name = try expect(.identifier, tokens);
 
-    const new_token = tokens.next() orelse
-        return error.NotEnoughJunk;
+    const new_token = try tokens.next_force();
 
-    tokens.put_back(int_token);
     switch (new_token.tag) {
-        .semicolon, .equals => return .{ .V = try parse_var_decl(arena, tokens) },
-        .l_paren => return .{ .F = try parse_func_decl(arena, tokens) },
-        else => return error.SyntaxError,
-    }
-}
-
-fn parse_func_decl(
-    arena: std.mem.Allocator,
-    tokens: *lexer.Tokenizer,
-) Error!ast.FuncDecl {
-    try expect(.type_int, tokens);
-
-    const name = try expect(.identifier, tokens);
-
-    var params: std.SegmentedList(ast.Identifier, 0) = .{};
-    { // params
-        try expect(.l_paren, tokens);
-        const next_token = tokens.next() orelse
-            return error.SyntaxError;
-        params: switch (next_token.tag) {
-            .keyword_void => try expect(.r_paren, tokens),
-            .type_int => {
-                const ident = try expect(.identifier, tokens);
-                try params.append(arena, .{ .name = ident });
-                const next_next = tokens.next() orelse
-                    return error.SyntaxError;
-                switch (next_next.tag) {
-                    .comma => {
-                        try expect(.type_int, tokens);
-                        continue :params .type_int;
-                    },
-                    .r_paren => {},
-                    else => continue :params .invalid,
-                }
-            },
-            else => return error.SyntaxError,
-        }
-    }
-    const block = block: {
-        const peeked = tokens.next() orelse
-            return error.SyntaxError;
-
-        switch (peeked.tag) {
-            .semicolon => break :block null,
-            .l_brace => {
-                tokens.put_back(peeked);
-                break :block try parse_block(arena, tokens);
-            },
-            else => return error.SyntaxError,
-        }
-    };
-
-    return .{ .name = name, .params = params, .block = block };
-}
-
-fn parse_var_decl(
-    arena: std.mem.Allocator,
-    tokens: *lexer.Tokenizer,
-) Error!ast.VarDecl {
-    try expect(.type_int, tokens);
-    const name = try expect(.identifier, tokens);
-    const new_token = tokens.next() orelse
-        return error.NotEnoughJunk;
-
-    const init: ?*ast.Expr = switch (new_token.tag) {
-        .equals => ret: {
+        .semicolon => return .{ .V = .{
+            .sc = sc,
+            .name = .{ .name = name },
+            .init = null,
+        } },
+        .equals => {
             const expr = try parse_expr(arena, tokens, 0);
             const expr_ptr = try utils.create(arena, expr);
 
             try expect(.semicolon, tokens);
-            break :ret expr_ptr;
+            return .{ .V = .{
+                .sc = sc,
+                .name = .{ .name = name },
+                .init = expr_ptr,
+            } };
         },
-        .semicolon => null,
-        else => return error.SyntaxError,
-    };
+        .l_paren => {
+            if (ty == .@"var") return error.SyntaxError;
+            var params: std.SegmentedList(ast.Identifier, 0) = .{};
 
-    return .{ .name = .{ .name = name }, .init = init };
+            const param_peek = try tokens.next_force();
+            params: switch (param_peek.tag) {
+                .keyword_void => try expect(.r_paren, tokens),
+                .type_int => {
+                    const ident = try expect(.identifier, tokens);
+                    try params.append(arena, .{ .name = ident });
+                    const inner_param_peek = try tokens.next_force();
+                    switch (inner_param_peek.tag) {
+                        .comma => {
+                            try expect(.type_int, tokens);
+                            continue :params .type_int;
+                        },
+                        .r_paren => {},
+                        else => continue :params .invalid,
+                    }
+                },
+                else => return error.SyntaxError,
+            }
+
+            const block_peek = try tokens.next_force();
+            const block = block: switch (block_peek.tag) {
+                .semicolon => null,
+                .l_brace => {
+                    tokens.put_back(block_peek);
+                    break :block try parse_block(arena, tokens);
+                },
+                else => return error.SyntaxError,
+            };
+
+            return .{ .F = .{
+                .sc = sc,
+                .name = name,
+                .params = params,
+                .block = block,
+            } };
+        },
+        else => return error.SyntaxError,
+    }
 }
 
 fn parse_stmt(
     arena: std.mem.Allocator,
     tokens: *lexer.Tokenizer,
 ) Error!ast.Stmt {
-    const current = tokens.next() orelse
-        return error.NotEnoughJunk;
+    const current = try tokens.next_force();
     switch (current.tag) {
         .semicolon => return .null,
         .keyword_return => {
@@ -171,8 +170,7 @@ fn parse_stmt(
             const then = try parse_stmt(arena, tokens);
             const then_ptr = try utils.create(arena, then);
 
-            const peek = tokens.next() orelse
-                return error.NotEnoughJunk;
+            const peek = try tokens.next_force();
             const else_ptr: ?*ast.Stmt = if (peek.tag == .keyword_else) s: {
                 const e = try parse_stmt(arena, tokens);
                 break :s try utils.create(arena, e);
@@ -233,32 +231,31 @@ fn parse_stmt(
             try expect(.l_paren, tokens);
 
             const init: ast.Stmt.For.Init = init: {
-                const new_token = tokens.next() orelse
-                    return error.NotEnoughJunk;
-                switch (new_token.tag) {
-                    .semicolon => break :init .none,
-                    .type_int => {
-                        tokens.put_back(new_token);
-                        const decl = try parse_var_decl(arena, tokens);
-                        const decl_ptr = try utils.create(arena, decl);
+                const peeked = try tokens.next_force();
+                if (peeked.tag == .semicolon) break :init .none else {
+                    tokens.put_back(peeked);
+                    if (parse_storage_class(tokens)) |sc| {
+                        const decl = try parse_decl(
+                            arena,
+                            tokens,
+                            .{ .@"var" = sc },
+                        );
+                        const decl_ptr = try utils.create(arena, decl.V);
                         break :init .{ .decl = decl_ptr };
-                    },
-                    else => {
-                        tokens.put_back(new_token);
+                    } else |_| { // <-- parse_sc already puts back any other token
                         const expr = try parse_expr(arena, tokens, 0);
                         const expr_ptr = try utils.create(arena, expr);
                         try expect(.semicolon, tokens);
                         break :init .{ .expr = expr_ptr };
-                    },
+                    }
                 }
             };
             const cond: ?*ast.Expr = cond: {
-                const new_token = tokens.next() orelse
-                    return error.NotEnoughJunk;
-                switch (new_token.tag) {
+                const peeked = try tokens.next_force();
+                switch (peeked.tag) {
                     .semicolon => break :cond null,
                     else => {
-                        tokens.put_back(new_token);
+                        tokens.put_back(peeked);
                         const expr = try parse_expr(arena, tokens, 0);
                         const expr_ptr = try utils.create(arena, expr);
                         try expect(.semicolon, tokens);
@@ -267,12 +264,11 @@ fn parse_stmt(
                 }
             };
             const post: ?*ast.Expr = post: {
-                const new_token = tokens.next() orelse
-                    return error.NotEnoughJunk;
-                switch (new_token.tag) {
+                const peeked = try tokens.next_force();
+                switch (peeked.tag) {
                     .r_paren => break :post null,
                     else => {
-                        tokens.put_back(new_token);
+                        tokens.put_back(peeked);
                         const expr = try parse_expr(arena, tokens, 0);
                         const expr_ptr = try utils.create(arena, expr);
                         try expect(.r_paren, tokens);
@@ -316,8 +312,7 @@ fn parse_expr(
 ) Error!ast.Expr {
     var lhs = try parse_factor(arena, tokens);
 
-    var current = tokens.next() orelse
-        return error.NotEnoughJunk;
+    var current = try tokens.next_force();
     defer tokens.put_back(current);
 
     while (current.tag.binop_precedence()) |r| {
@@ -359,8 +354,7 @@ fn parse_expr(
             else => unreachable,
         };
 
-        current = tokens.next() orelse
-            return error.NotEnoughJunk;
+        current = try tokens.next_force();
     }
 
     return lhs;
@@ -370,13 +364,11 @@ fn parse_factor(
     arena: std.mem.Allocator,
     tokens: *lexer.Tokenizer,
 ) Error!ast.Expr {
-    const current = tokens.next() orelse
-        return error.NotEnoughJunk;
+    const current = try tokens.next_force();
 
     switch (current.tag) {
         .identifier => {
-            const next_token = tokens.next() orelse
-                return error.NotEnoughJunk;
+            const next_token = try tokens.next_force();
             const name = tokens.buffer[current.loc.start..current.loc.end];
 
             switch (next_token.tag) {
@@ -426,8 +418,7 @@ fn parse_args(
     // assumes l_paren already consumed
     var ret: std.SegmentedList(ast.Expr, 0) = .{};
 
-    const current = tokens.next() orelse
-        return error.NotEnoughJunk;
+    const current = try tokens.next_force();
 
     args: switch (current.tag) {
         .r_paren => return ret,
@@ -435,8 +426,7 @@ fn parse_args(
             const expr = try parse_expr(arena, tokens, 0);
             try ret.append(arena, expr);
 
-            const n_token = tokens.next() orelse
-                return error.NotEnoughJunk;
+            const n_token = try tokens.next_force();
             continue :args n_token.tag;
         },
         else => {
@@ -450,8 +440,7 @@ inline fn expect(
     comptime expected: lexer.Token.Tag,
     tokens: *lexer.Tokenizer,
 ) Error!ExpectResult(expected) {
-    const actual = tokens.next() orelse
-        return error.NotEnoughJunk;
+    const actual = try tokens.next_force();
     if (actual.tag != expected)
         return error.SyntaxError;
 
@@ -470,7 +459,13 @@ fn ExpectResult(comptime expected: lexer.Token.Tag) type {
 
 const Error =
     std.mem.Allocator.Error ||
-    error{ SyntaxError, InvalidInt, ExtraJunk, NotEnoughJunk, DebuggingError1, DebuggingError2 };
+    error{
+        SyntaxError,
+        InvalidInt,
+        NotEnoughJunk,
+        InvalidStorageClass,
+        InvalidTypeSpecifier,
+    };
 
 test "precedence" {
     try testing_prec("3 * 4 + 5", "(+ (* 3 4) 5)", .binop_add);
