@@ -18,6 +18,7 @@ pub const Prgm = struct {
                 decl,
                 (options.width orelse 0) + 1,
             });
+            if (decl.* == .V) try writer.writeByte('\n');
         }
 
         try writer.writeByteNTimes('=', 32);
@@ -121,7 +122,7 @@ pub const VarDecl = struct {
         try writer.writeByteNTimes('\t', w);
 
         if (self.sc) |sc| try writer.print("{s} ", .{@tagName(sc)});
-        try writer.print("{any}", .{self.name});
+        try writer.print("VARIABLE {any}", .{self.name});
         if (self.init) |e|
             try writer.print(" <- {}", .{e});
     }

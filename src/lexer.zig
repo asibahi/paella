@@ -133,6 +133,11 @@ pub const Tokenizer = struct {
     };
 
     pub inline fn put_back(self: *Tokenizer, token: Token) void {
+        // std.debug.print("REWIND {s} {}-{}\n", .{
+        //     @tagName(token.tag),
+        //     token.loc.start,
+        //     token.loc.end,
+        // });
         self.index = token.loc.start;
     }
 
@@ -327,6 +332,11 @@ pub const Tokenizer = struct {
         }
 
         result.loc.end = self.index;
+        // std.debug.print("NEXT   {s} {}-{}\n", .{
+        //     @tagName(result.tag),
+        //     result.loc.start,
+        //     result.loc.end,
+        // });
         return result;
     }
 };
