@@ -12,7 +12,7 @@ pub fn parse_prgm(
 
     while (tokens.next()) |next_token| {
         tokens.put_back(next_token);
-        const decl = try parse_decl(arena, tokens, .either);
+        const decl = try parse_decl(.either, arena, tokens, .no);
         try decls.append(arena, decl);
     }
 
@@ -42,13 +42,10 @@ fn parse_block_item(
     arena: std.mem.Allocator,
     tokens: *lexer.Tokenizer,
 ) Error!ast.BlockItem {
-    const current = try tokens.next_force();
-    tokens.put_back(current);
-
-    switch (current.tag) {
-        .type_int => return .decl(try parse_decl(arena, tokens, .either)),
-        else => return .stmt(try parse_stmt(arena, tokens)),
-    }
+    if (parse_storage_class(tokens)) |sc|
+        return .decl(try parse_decl(.either, arena, tokens, .{ .yes = sc }))
+    else |_|
+        return .stmt(try parse_stmt(arena, tokens));
 }
 
 fn parse_storage_class(
@@ -78,11 +75,12 @@ fn parse_storage_class(
 }
 
 fn parse_decl(
+    comptime ty: enum { @"var", either },
     arena: std.mem.Allocator,
     tokens: *lexer.Tokenizer,
-    ty: union(enum) { @"var": ?ast.StorageClass, either },
+    parsed: union(enum) { yes: ?ast.StorageClass, no },
 ) Error!ast.Decl {
-    const sc = if (ty == .@"var") ty.@"var" else try parse_storage_class(tokens);
+    const sc = if (parsed == .yes) parsed.yes else try parse_storage_class(tokens);
     const name = try expect(.identifier, tokens);
 
     const new_token = try tokens.next_force();
@@ -236,9 +234,10 @@ fn parse_stmt(
                     tokens.put_back(peeked);
                     if (parse_storage_class(tokens)) |sc| {
                         const decl = try parse_decl(
+                            .@"var",
                             arena,
                             tokens,
-                            .{ .@"var" = sc },
+                            .{ .yes = sc },
                         );
                         const decl_ptr = try utils.create(arena, decl.V);
                         break :init .{ .decl = decl_ptr };
