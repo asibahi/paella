@@ -48,7 +48,7 @@ pub fn prgm_emit_ir(
         };
     }
 
-    return .{ .items = top_level };
+    return .{ .items = top_level, .type_map = type_map };
 }
 
 fn func_def_emit_ir(

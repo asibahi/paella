@@ -20,12 +20,12 @@ pub fn fixup_instrs(
 
     const State = enum {
         start,
-        mov_stack_stack,
-        cmp_stack_stack,
+        mov_mem_mem,
+        cmp_mem_mem,
         cmp_to_imm,
-        add_stack_stack,
-        sub_stack_stack,
-        mul_to_stack,
+        add_mem_mem,
+        sub_mem_mem,
+        mul_to_mem,
         idiv_const,
         legal,
     };
@@ -33,26 +33,26 @@ pub fn fixup_instrs(
     for (func_def.instrs.items) |instr| {
         state: switch (State.start) {
             .start => switch (instr) {
-                .mov => |m| if (m.src == .stack and m.dst == .stack)
-                    continue :state .mov_stack_stack
+                .mov => |m| if (m.src.is_mem() and m.dst.is_mem())
+                    continue :state .mov_mem_mem
                 else
                     continue :state .legal,
-                .cmp => |m| if (m.src == .stack and m.dst == .stack)
-                    continue :state .cmp_stack_stack
+                .cmp => |m| if (m.src.is_mem() and m.dst.is_mem())
+                    continue :state .cmp_mem_mem
                 else if (m.dst == .imm)
                     continue :state .cmp_to_imm
                 else
                     continue :state .legal,
-                .add => |m| if (m.src == .stack and m.dst == .stack)
-                    continue :state .add_stack_stack
+                .add => |m| if (m.src.is_mem() and m.dst.is_mem())
+                    continue :state .add_mem_mem
                 else
                     continue :state .legal,
-                .sub => |m| if (m.src == .stack and m.dst == .stack)
-                    continue :state .sub_stack_stack
+                .sub => |m| if (m.src.is_mem() and m.dst.is_mem())
+                    continue :state .sub_mem_mem
                 else
                     continue :state .legal,
-                .mul => |m| if (m.dst == .stack)
-                    continue :state .mul_to_stack
+                .mul => |m| if (m.dst.is_mem())
+                    continue :state .mul_to_mem
                 else
                     continue :state .legal,
                 .idiv => |o| if (o == .imm)
@@ -63,11 +63,11 @@ pub fn fixup_instrs(
                 else => continue :state .legal,
             },
 
-            .mov_stack_stack => try out.appendSlice(alloc, &.{
+            .mov_mem_mem => try out.appendSlice(alloc, &.{
                 .{ .mov = .init(instr.mov.src, .{ .reg = .R10 }) },
                 .{ .mov = .init(.{ .reg = .R10 }, instr.mov.dst) },
             }),
-            .cmp_stack_stack => try out.appendSlice(alloc, &.{
+            .cmp_mem_mem => try out.appendSlice(alloc, &.{
                 .{ .mov = .init(instr.cmp.src, .{ .reg = .R10 }) },
                 .{ .cmp = .init(.{ .reg = .R10 }, instr.cmp.dst) },
             }),
@@ -75,15 +75,15 @@ pub fn fixup_instrs(
                 .{ .mov = .init(instr.cmp.dst, .{ .reg = .R11 }) },
                 .{ .cmp = .init(instr.cmp.src, .{ .reg = .R11 }) },
             }),
-            .add_stack_stack => try out.appendSlice(alloc, &.{
+            .add_mem_mem => try out.appendSlice(alloc, &.{
                 .{ .mov = .init(instr.add.src, .{ .reg = .R10 }) },
                 .{ .add = .init(.{ .reg = .R10 }, instr.add.dst) },
             }),
-            .sub_stack_stack => try out.appendSlice(alloc, &.{
+            .sub_mem_mem => try out.appendSlice(alloc, &.{
                 .{ .mov = .init(instr.sub.src, .{ .reg = .R10 }) },
                 .{ .sub = .init(.{ .reg = .R10 }, instr.sub.dst) },
             }),
-            .mul_to_stack => try out.appendSlice(alloc, &.{
+            .mul_to_mem => try out.appendSlice(alloc, &.{
                 .{ .mov = .init(instr.mul.dst, .{ .reg = .R11 }) },
                 .{ .mul = .init(instr.mul.src, .{ .reg = .R11 }) },
                 .{ .mov = .init(.{ .reg = .R11 }, instr.mul.dst) },

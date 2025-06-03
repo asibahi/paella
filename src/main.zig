@@ -92,7 +92,6 @@ pub fn run(
             }
 
             var type_map = try sema.resolve_prgm(gpa, &strings, &ast);
-            defer type_map.deinit(gpa);
 
             if (args.mode == .validate) {
                 if (bi.mode == .Debug)

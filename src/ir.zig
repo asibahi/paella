@@ -1,9 +1,11 @@
 const std = @import("std");
 const utils = @import("utils.zig");
+const sema = @import("sema.zig");
 const Identifier = utils.StringInterner.Idx;
 
 pub const Prgm = struct {
     items: std.ArrayListUnmanaged(TopLevel),
+    type_map: *sema.TypeMap,
 
     pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
         for (self.items.items) |*item| if (item.* == .F)

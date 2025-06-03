@@ -10,18 +10,23 @@ pub fn prgm_to_asm(
     alloc: std.mem.Allocator,
     prgm: ir.Prgm,
 ) !assembly.Prgm {
-    var funcs: std.ArrayListUnmanaged(assembly.FuncDef) = try .initCapacity(
+    var items: std.ArrayListUnmanaged(assembly.TopLevel) = try .initCapacity(
         alloc,
         prgm.items.items.len,
     );
 
-    for (prgm.items.items) |func| if (func == .F)
-        try funcs.append(
-            alloc,
-            try func_def_to_asm(alloc, func.F),
-        );
+    for (prgm.items.items) |item| switch (item) {
+        .F => |f| try items.append(alloc, .{
+            .F = try func_def_to_asm(alloc, f),
+        }),
+        .V => |v| try items.append(alloc, .{ .V = assembly.StaticVar{
+            .name = v.name,
+            .init = v.init,
+            .global = v.global,
+        } }),
+    };
 
-    return .{ .funcs = funcs };
+    return .{ .items = items, .type_map = prgm.type_map };
 }
 
 fn func_def_to_asm(
@@ -57,6 +62,7 @@ fn func_def_to_asm(
 
     return .{
         .name = func_def.name,
+        .global = func_def.global,
         .instrs = instrs,
     };
 }
