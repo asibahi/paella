@@ -69,11 +69,11 @@ pub const Decl = union(enum) {
     }
 };
 
-pub const StorageClass = enum { static, @"extern" };
+pub const StorageClass = enum { static, @"extern", none };
 
 pub const FuncDecl = struct {
     name: []const u8,
-    sc: ?StorageClass,
+    sc: StorageClass,
     params: std.SegmentedList(Identifier, 0),
     block: ?Block,
 
@@ -86,7 +86,7 @@ pub const FuncDecl = struct {
         const w = options.width orelse 0;
         try writer.writeByteNTimes('\t', w);
 
-        if (self.sc) |sc| try writer.print("{s} ", .{@tagName(sc)});
+        if (self.sc != .none) try writer.print("{s} ", .{@tagName(self.sc)});
         try writer.print("FUNCTION {s}", .{self.name});
         {
             var iter = self.params.constIterator(0);
@@ -110,7 +110,7 @@ pub const FuncDecl = struct {
 pub const VarDecl = struct {
     name: Identifier,
     init: ?*Expr,
-    sc: ?StorageClass,
+    sc: StorageClass,
 
     pub fn format(
         self: @This(),
@@ -121,7 +121,7 @@ pub const VarDecl = struct {
         const w = options.width orelse 0;
         try writer.writeByteNTimes('\t', w);
 
-        if (self.sc) |sc| try writer.print("{s} ", .{@tagName(sc)});
+        if (self.sc != .none) try writer.print("{s} ", .{@tagName(self.sc)});
         try writer.print("VARIABLE {any}", .{self.name});
         if (self.init) |e|
             try writer.print(" <- {}", .{e});
