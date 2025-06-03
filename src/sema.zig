@@ -21,8 +21,48 @@ pub fn resolve_prgm(
     };
 
     var iter = prgm.decls.iterator(0);
-    while (iter.next()) |item| if (item.* == .F)
-        try resolve_func_decl(bp, &item.F);
+    while (iter.next()) |item| switch (item.*) {
+        .F => |*f| try resolve_func_decl(bp, f),
+        .V => |*v| { // file scope variables
+            const real_name = try strings.get_or_put(gpa, v.name.name);
+            try variable_map.put(gpa, v.name.name, .{
+                .name = real_name,
+                .linkage = .has_linkage,
+            });
+
+            var init_value: Arrtibutes.Init = if (v.init) |e| switch (e.*) {
+                .constant => |i| .{ .initial = i },
+                else => return error.NonConstantInit,
+            } else if (v.sc == .@"extern") .none else .tentative;
+
+            var global = v.sc != .static;
+
+            const gop = try type_map.getOrPut(gpa, real_name.real_idx);
+            if (gop.found_existing) {
+                if (gop.value_ptr.* != .static)
+                    return error.TypeError;
+
+                if (v.sc == .@"extern")
+                    global = gop.value_ptr.static.global
+                else if (gop.value_ptr.static.global != global)
+                    return error.ConflictingLinkage;
+
+                if (gop.value_ptr.static.init == .initial) {
+                    if (init_value == .initial)
+                        return error.ConflictingDefinitions;
+                    init_value = gop.value_ptr.static.init;
+                } else if (init_value != .initial and
+                    gop.value_ptr.static.init == .tentative)
+                {
+                    init_value = .tentative;
+                }
+            }
+            gop.value_ptr.* = .{ .static = .{
+                .init = init_value,
+                .global = global,
+            } };
+        },
+    };
 }
 
 fn resolve_func_decl(
@@ -30,14 +70,14 @@ fn resolve_func_decl(
     func_decl: *ast.FuncDecl,
 ) Error!void {
     if (bp.variable_map.get(func_decl.name)) |prev|
-        if (prev.scope == .local and prev.linkage != .external)
+        if (prev.scope == .local and prev.linkage == .none)
             return error.DuplicateDecl;
 
     const nname = try bp.strings.get_or_put(bp.gpa, func_decl.name);
     try bp.variable_map.put(bp.gpa, func_decl.name, .{
         .name = nname,
         .scope = .local,
-        .linkage = .external,
+        .linkage = .has_linkage,
     });
     {
         const gop = try bp.type_map.getOrPut(bp.gpa, nname.real_idx);
@@ -50,10 +90,17 @@ fn resolve_func_decl(
                 func_decl.block != null)
             {
                 return error.DuplicateFunctionDef;
+            } else if (gop.value_ptr.func.global and
+                func_decl.sc == .static)
+            {
+                return error.ConflictingFuncDecls;
             }
+            gop.value_ptr.func.defined =
+                gop.value_ptr.func.defined or func_decl.block != null;
         } else gop.value_ptr.* = .{ .func = .{
             .arity = func_decl.params.count(),
             .defined = func_decl.block != null,
+            .global = func_decl.sc != .static,
         } };
     }
     // func_decl.name = .{ .idx = nname };
@@ -69,7 +116,7 @@ fn resolve_func_decl(
 
     var params = func_decl.params.iterator(0);
     while (params.next()) |param|
-        try resolve_var_decl(.param, inner_bp, param);
+        try resolve_local_var_decl(.param, inner_bp, param);
 
     if (func_decl.block) |*block|
         try resolve_block(inner_bp, null, block);
@@ -86,14 +133,16 @@ fn resolve_block(
         .D => |*d| switch (d.*) {
             .F => |*f| if (f.block) |_|
                 return error.IllegalFuncDefinition
+            else if (f.sc == .static)
+                return error.TypeError
             else
                 try resolve_func_decl(bp, f),
-            .V => |*v| try resolve_var_decl(.@"var", bp, v),
+            .V => |*v| try resolve_local_var_decl(.@"var", bp, v),
         },
     };
 }
 
-fn resolve_var_decl(
+fn resolve_local_var_decl(
     comptime T: enum { param, @"var" },
     bp: Boilerplate,
     item: switch (T) {
@@ -101,22 +150,61 @@ fn resolve_var_decl(
         .param => *ast.Identifier,
     },
 ) Error!void {
-    const identifier = switch (T) {
-        .@"var" => &item.name,
-        .param => item,
+    const identifier, const sc: ?ast.StorageClass = switch (T) {
+        .@"var" => .{ &item.name, item.sc },
+        .param => .{ item, null },
     };
-    if (bp.variable_map.get(identifier.name)) |entry| if (entry.scope == .local)
-        return error.DuplicateDecl;
+    if (bp.variable_map.get(identifier.name)) |prev|
+        if (prev.scope == .local)
+            if (!(prev.linkage != .none and sc == .@"extern"))
+                return error.DuplicateDecl;
+
+    if (sc == .@"extern") {
+        const nname = try bp.strings.get_or_put(bp.gpa, identifier.name);
+        try bp.variable_map.put(bp.gpa, identifier.name, .{
+            .name = nname,
+            .linkage = .has_linkage,
+        });
+        { // TYPE CHECKING
+            if (item.init != null) {
+                return error.TypeError;
+            }
+
+            const gop = try bp.type_map.getOrPut(bp.gpa, nname.real_idx);
+            if (gop.found_existing) {
+                if (gop.value_ptr.* == .func)
+                    return error.TypeError;
+            } else gop.value_ptr.* = .{ .static = .{
+                .init = .none,
+                .global = true,
+            } };
+        }
+
+        return;
+    }
 
     const unique_name = try bp.make_temporary(identifier.name);
     try bp.variable_map.put(bp.gpa, identifier.name, .{ .name = unique_name });
 
     { // TYPE CHECKING
+        const attr: Arrtibutes = if (sc == .static) ret: {
+            const init_value: Arrtibutes.Init = if (item.init) |e| switch (e.*) {
+                .constant => |i| .{ .initial = i },
+                else => return error.TypeError,
+            } else .{ .initial = 0 };
+
+            break :ret .{ .static = .{
+                .init = init_value,
+                .global = false,
+            } };
+        } else .local;
+
         const gop = try bp.type_map.getOrPut(bp.gpa, unique_name.real_idx);
         if (gop.found_existing) {
-            if (gop.value_ptr.* != .int)
+            if (gop.value_ptr.* == .func)
                 return error.TypeError;
-        } else gop.value_ptr.* = .int;
+        }
+        gop.value_ptr.* = attr;
     }
 
     identifier.* = .{ .idx = unique_name };
@@ -164,7 +252,7 @@ fn resolve_stmt(
                     const label = try bp.make_temporary("for");
                     f.label = label;
                     switch (f.init) {
-                        .decl => |d| try resolve_var_decl(.@"var", inner_bp, d),
+                        .decl => |d| try resolve_local_var_decl(.@"var", inner_bp, d),
                         .expr => |e| try resolve_expr(inner_bp, e),
                         .none => {},
                     }
@@ -191,7 +279,7 @@ fn resolve_expr(
             try resolve_expr(bp, b.@"1");
         },
         .@"var" => |name| if (bp.variable_map.get(name.name)) |un| {
-            if (bp.type_map.get(un.name.real_idx).? == .int)
+            if (bp.type_map.get(un.name.real_idx).? != .func)
                 expr.* = .{ .@"var" = .{ .idx = un.name } }
             else
                 return error.TypeError;
@@ -270,7 +358,7 @@ const VariableMap = std.StringHashMapUnmanaged(
 const Entry = struct {
     name: utils.StringInterner.Idx,
     scope: enum { local, parent } = .local,
-    linkage: enum { none, external } = .none,
+    linkage: enum { none, has_linkage } = .none,
 
     fn globalize(self: *@This()) void {
         self.* = .{
@@ -283,15 +371,26 @@ const Entry = struct {
 
 const TypeMap = std.AutoHashMapUnmanaged(
     u32,
-    Type,
+    Arrtibutes,
 );
 
-const Type = union(enum) {
-    int,
+const Arrtibutes = union(enum) {
     func: struct {
         arity: usize,
         defined: bool,
+        global: bool,
     },
+    static: struct {
+        init: Init,
+        global: bool,
+    },
+    local,
+
+    const Init = union(enum) {
+        tentative,
+        initial: u64,
+        none,
+    };
 };
 
 const Error = std.mem.Allocator.Error || std.fmt.BufPrintError ||
@@ -304,4 +403,8 @@ const Error = std.mem.Allocator.Error || std.fmt.BufPrintError ||
         UndeclaredFunction,
         BreakOrContinueOutsideLoop,
         IllegalFuncDefinition,
+        ConflictingFuncDecls,
+        ConflictingLinkage,
+        ConflictingDefinitions,
+        NonConstantInit,
     };

@@ -233,6 +233,7 @@ fn parse_stmt(
                 if (peeked.tag == .semicolon) break :init .none else {
                     tokens.put_back(peeked);
                     if (parse_storage_class(tokens)) |sc| {
+                        if (sc != null) return error.SyntaxError;
                         const decl = try parse_decl(
                             .@"var",
                             arena,
