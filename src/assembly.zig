@@ -1,30 +1,33 @@
 const std = @import("std");
 const utils = @import("utils.zig");
+const sema = @import("sema.zig");
 const Identifier = utils.StringInterner.Idx;
 
 const pass_pseudo = @import("asm_passes/pseudos.zig");
 const pass_fixup = @import("asm_passes/fixup.zig");
 
 pub const Prgm = struct {
-    funcs: std.ArrayListUnmanaged(FuncDef),
+    items: std.ArrayListUnmanaged(TopLevel),
+    type_map: *sema.TypeMap,
 
     pub fn fixup(
         self: *@This(),
         alloc: std.mem.Allocator,
     ) !void {
-        for (self.funcs.items) |*func| {
-            try pass_pseudo.replace_pseudos(alloc, func);
-            try pass_fixup.fixup_instrs(alloc, func);
-        }
+        for (self.items.items) |*item| if (item.* == .F) {
+            try pass_pseudo.replace_pseudos(alloc, self.type_map, &item.F);
+            try pass_fixup.fixup_instrs(alloc, &item.F);
+        };
     }
 
     pub fn deinit(
         self: *@This(),
         alloc: std.mem.Allocator,
     ) void {
-        for (self.funcs.items) |*func|
-            func.deinit(alloc);
-        self.funcs.deinit(alloc);
+        for (self.items.items) |*item| if (item.* == .F)
+            item.F.deinit(alloc);
+        self.items.deinit(alloc);
+        self.type_map.deinit(alloc);
     }
 
     pub fn format(
@@ -34,13 +37,13 @@ pub const Prgm = struct {
         writer: anytype,
     ) !void {
         if (std.mem.eql(u8, fmt, "gen")) {
-            for (self.funcs.items) |func|
-                try writer.print("{" ++ fmt ++ "}", .{func});
+            for (self.items.items) |item|
+                try writer.print("{" ++ fmt ++ "}", .{item});
         } else {
             try writer.print("PROGRAM\n", .{});
-            for (self.funcs.items) |func|
+            for (self.items.items) |item|
                 try writer.print("{:[1]}", .{
-                    func,
+                    item,
                     (options.width orelse 0) + 1,
                 });
         }
@@ -48,8 +51,25 @@ pub const Prgm = struct {
     }
 };
 
+pub const TopLevel = union(enum) {
+    F: FuncDef,
+    V: StaticVar,
+
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        switch (self) {
+            inline else => |i| try i.format(fmt, options, writer),
+        }
+    }
+};
+
 pub const FuncDef = struct {
     name: Identifier,
+    global: bool,
     instrs: std.ArrayListUnmanaged(Instr),
     depth: Instr.Depth = 0,
 
@@ -64,9 +84,13 @@ pub const FuncDef = struct {
         writer: anytype,
     ) !void {
         if (std.mem.eql(u8, fmt, "gen")) {
+            if (self.global) try writer.print(indent(
+                \\.globl _{s}
+                \\
+            ), .{self.name});
             try writer.print(indent(
-                \\.globl _{0s}
-                \\_{0s}:
+                \\.text
+                \\_{s}:
                 \\pushq   %rbp
                 \\movq    %rsp, %rbp
                 \\
@@ -77,12 +101,56 @@ pub const FuncDef = struct {
             const w = options.width orelse 0;
             try writer.writeByteNTimes('\t', w);
 
+            if (self.global) try writer.writeAll("global ");
             try writer.print("FUNCTION {}\n", .{self.name});
             for (self.instrs.items) |instr|
                 try writer.print("{:[1]}\n", .{
                     instr,
                     w + 1,
                 });
+        }
+    }
+};
+
+pub const StaticVar = struct {
+    name: Identifier,
+    global: bool,
+    init: u64,
+
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        if (std.mem.eql(u8, fmt, "gen")) {
+            if (self.global) try writer.print(indent(
+                \\.globl _{s}
+                \\
+            ), .{self.name});
+
+            switch (self.init) {
+                0 => try writer.print(indent(
+                    \\.bss
+                    \\.balign 4
+                    \\_{s}:
+                    \\.zero 4
+                    \\
+                ), .{self.name}),
+                else => try writer.print(indent(
+                    \\.data
+                    \\.balign 4
+                    \\_{s}:
+                    \\.long {1}
+                    \\
+                ), .{ self.name, self.init }),
+            }
+        } else {
+            const w = options.width orelse 0;
+            try writer.writeByteNTimes('\t', w);
+
+            if (self.global) try writer.writeAll("global ");
+            try writer.print("VARIABLE {} = {}\n", .{ self.name, self.init });
         }
     }
 };
@@ -200,9 +268,19 @@ pub const Operand = union(enum) {
     reg: Register,
     pseudo: Identifier,
     stack: Offset,
+    data: Identifier,
 
     pub const Register = enum { AX, CX, DX, DI, SI, R8, R9, R10, R11 };
     pub const Offset = i64;
+
+    pub inline fn is_mem(
+        self: @This(),
+    ) bool {
+        return switch (self) {
+            .stack, .data => true,
+            else => false,
+        };
+    }
 
     pub fn format(
         self: @This(),
@@ -215,6 +293,7 @@ pub const Operand = union(enum) {
             .reg => |r| try emit_register(r, options.width orelse 4, writer),
             .stack => |d| try writer.print("{d}(%rbp)", .{d}),
             .pseudo => @panic("wrong code path"),
+            .data => |s| try writer.print("_{}(%rip)", .{s}),
         } else {
             const w = options.width orelse 0;
             try writer.writeByteNTimes('\t', w);
@@ -224,6 +303,7 @@ pub const Operand = union(enum) {
                 .reg => |r| try writer.print("{s}", .{@tagName(r)}),
                 .pseudo => |s| try writer.print("pseudo {}", .{s}),
                 .stack => |d| try writer.print("stack {d}", .{d}),
+                .data => |s| try writer.print("data {}", .{s}),
             }
         }
     }
