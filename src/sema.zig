@@ -6,12 +6,11 @@ pub fn resolve_prgm(
     gpa: std.mem.Allocator,
     strings: *utils.StringInterner,
     prgm: *ast.Prgm,
-) Error!void {
+) Error!TypeMap {
     var variable_map: VariableMap = .empty;
     defer variable_map.deinit(gpa);
 
     var type_map: TypeMap = .empty;
-    defer type_map.deinit(gpa);
 
     const bp: Boilerplate = .{
         .gpa = gpa,
@@ -60,6 +59,8 @@ pub fn resolve_prgm(
             } };
         },
     };
+
+    return type_map;
 }
 
 fn resolve_func_decl(
@@ -366,12 +367,12 @@ const Entry = struct {
     }
 };
 
-const TypeMap = std.AutoHashMapUnmanaged(
+pub const TypeMap = std.AutoHashMapUnmanaged(
     u32,
     Arrtibutes,
 );
 
-const Arrtibutes = union(enum) {
+pub const Arrtibutes = union(enum) {
     func: struct {
         arity: usize,
         defined: bool,

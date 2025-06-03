@@ -3,11 +3,13 @@ const utils = @import("utils.zig");
 const Identifier = utils.StringInterner.Idx;
 
 pub const Prgm = struct {
-    funcs: std.ArrayListUnmanaged(FuncDef),
+    items: std.ArrayListUnmanaged(TopLevel),
 
     pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
-        for (self.funcs.items) |*func| func.deinit(alloc);
-        self.funcs.deinit(alloc);
+        for (self.items.items) |*item| if (item.* == .F)
+            item.F.deinit(alloc);
+
+        self.items.deinit(alloc);
 
         // string interner manages its own memory thanks.
     }
@@ -19,17 +21,34 @@ pub const Prgm = struct {
         writer: anytype,
     ) !void {
         try writer.print("PROGRAM\n", .{});
-        for (self.funcs.items) |func|
+        for (self.items.items) |item|
             try writer.print("{:[1]}", .{
-                func,
+                item,
                 (options.width orelse 0) + 1,
             });
         try writer.writeByteNTimes('=', 32);
     }
 };
 
+pub const TopLevel = union(enum) {
+    F: FuncDef,
+    V: StaticVar,
+
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        switch (self) {
+            inline else => |i| try i.format(fmt, options, writer),
+        }
+    }
+};
+
 pub const FuncDef = struct {
     name: Identifier,
+    global: bool = false, // assigned later than contruction
     params: std.ArrayListUnmanaged(Identifier),
     instrs: std.ArrayListUnmanaged(Instr),
 
@@ -48,6 +67,7 @@ pub const FuncDef = struct {
         const w = options.width orelse 0;
         try writer.writeByteNTimes('\t', w);
 
+        if (self.global) try writer.writeAll("global ");
         try writer.print("FUNCTION {} ", .{self.name});
         for (self.params.items, 0..) |param, idx| {
             if (idx > 0) try writer.writeAll(", ");
@@ -59,6 +79,25 @@ pub const FuncDef = struct {
                 instr,
                 w + 1,
             });
+    }
+};
+
+pub const StaticVar = struct {
+    name: Identifier,
+    global: bool,
+    init: u64,
+
+    pub fn format(
+        self: @This(),
+        comptime _: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        const w = options.width orelse 0;
+        try writer.writeByteNTimes('\t', w);
+
+        if (self.global) try writer.writeAll("global ");
+        try writer.print("VARIABLE {} = {}\n", .{ self.name, self.init });
     }
 };
 

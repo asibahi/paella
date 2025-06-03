@@ -12,13 +12,13 @@ pub fn prgm_to_asm(
 ) !assembly.Prgm {
     var funcs: std.ArrayListUnmanaged(assembly.FuncDef) = try .initCapacity(
         alloc,
-        prgm.funcs.items.len,
+        prgm.items.items.len,
     );
 
-    for (prgm.funcs.items) |func|
+    for (prgm.items.items) |func| if (func == .F)
         try funcs.append(
             alloc,
-            try func_def_to_asm(alloc, func),
+            try func_def_to_asm(alloc, func.F),
         );
 
     return .{ .funcs = funcs };

@@ -1,25 +1,54 @@
 const std = @import("std");
 const ast = @import("ast.zig");
 const ir = @import("ir.zig");
+const sema = @import("sema.zig");
 const utils = @import("utils.zig");
 
 pub fn prgm_emit_ir(
     alloc: std.mem.Allocator,
     strings: *utils.StringInterner,
+    type_map: *sema.TypeMap,
     prgm: *const ast.Prgm,
 ) Error!ir.Prgm {
-    var funcs: std.ArrayListUnmanaged(ir.FuncDef) = try .initCapacity(
+    var top_level: std.ArrayListUnmanaged(ir.TopLevel) = try .initCapacity(
         alloc,
         prgm.decls.len,
     );
 
-    var iter = prgm.decls.constIterator(0);
-    while (iter.next()) |d| if (d.* == .F) if (d.F.block) |_| {
-        const fir = try func_def_emit_ir(alloc, strings, &d.F);
-        try funcs.append(alloc, fir);
-    };
+    { // FUNCTIONS
+        var iter = prgm.decls.constIterator(0);
+        while (iter.next()) |d| if (d.* == .F) if (d.F.block) |_| {
+            var f_ir = try func_def_emit_ir(alloc, strings, &d.F);
 
-    return .{ .funcs = funcs };
+            // assertions galore. so much hidden control flow
+            f_ir.global = type_map.get(f_ir.name.real_idx).?.func.global;
+
+            try top_level.append(alloc, .{ .F = f_ir });
+        };
+    }
+
+    { // STATIC VARS
+        var iter = type_map.iterator();
+        while (iter.next()) |entry| if (entry.value_ptr.* == .static) {
+            const name: utils.StringInterner.Idx = .{
+                .real_idx = entry.key_ptr.*,
+                .strings = strings,
+            };
+            const global = entry.value_ptr.static.global;
+            const init = switch (entry.value_ptr.static.init) {
+                .initial => |i| i,
+                .tentative => 0,
+                .none => continue,
+            };
+            try top_level.append(alloc, .{ .V = .{
+                .name = name,
+                .global = global,
+                .init = init,
+            } });
+        };
+    }
+
+    return .{ .items = top_level };
 }
 
 fn func_def_emit_ir(
@@ -66,10 +95,10 @@ fn var_decl_emit_ir(
     bp: Boilerplate,
     decl: *const ast.VarDecl,
 ) Error!void {
-    if (decl.init) |e| {
+    if (decl.sc == .none) if (decl.init) |e| {
         const src = try expr_emit_ir(bp, e);
         try bp.append(.{ .copy = .init(src, .{ .variable = decl.name.idx }) });
-    }
+    };
 }
 
 fn stmt_emit_ir(
