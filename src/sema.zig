@@ -30,36 +30,33 @@ pub fn resolve_prgm(
                 .linkage = .has_linkage,
             });
 
-            var init_value: Arrtibutes.Init = if (v.init) |e| switch (e.*) {
+            const init_value: Arrtibutes.Init = if (v.init) |e| switch (e.*) {
                 .constant => |i| .{ .initial = i },
                 else => return error.NonConstantInit,
             } else if (v.sc == .@"extern") .none else .tentative;
-
-            var global = v.sc != .static;
 
             const gop = try type_map.getOrPut(gpa, real_name.real_idx);
             if (gop.found_existing) {
                 if (gop.value_ptr.* != .static)
                     return error.TypeError;
 
-                if (v.sc == .@"extern")
-                    global = gop.value_ptr.static.global
-                else if (gop.value_ptr.static.global != global)
-                    return error.ConflictingLinkage;
+                gop.value_ptr.static.global = if (v.sc == .@"extern")
+                    gop.value_ptr.static.global
+                else if (gop.value_ptr.static.global != (v.sc != .static))
+                    return error.ConflictingLinkage
+                else
+                    v.sc != .static;
 
-                if (gop.value_ptr.static.init == .initial) {
-                    if (init_value == .initial)
-                        return error.ConflictingDefinitions;
-                    init_value = gop.value_ptr.static.init;
-                } else if (init_value != .initial and
-                    gop.value_ptr.static.init == .tentative)
-                {
-                    init_value = .tentative;
+                in: switch (gop.value_ptr.static.init) {
+                    .initial => if (init_value == .initial)
+                        return error.ConflictingDefinitions,
+                    .tentative => if (init_value == .initial)
+                        continue :in .none,
+                    .none => gop.value_ptr.static.init = init_value,
                 }
-            }
-            gop.value_ptr.* = .{ .static = .{
+            } else gop.value_ptr.* = .{ .static = .{
                 .init = init_value,
-                .global = global,
+                .global = v.sc != .static,
             } };
         },
     };
@@ -150,9 +147,9 @@ fn resolve_local_var_decl(
         .param => *ast.Identifier,
     },
 ) Error!void {
-    const identifier, const sc: ?ast.StorageClass = switch (T) {
+    const identifier, const sc: ast.StorageClass = switch (T) {
         .@"var" => .{ &item.name, item.sc },
-        .param => .{ item, null },
+        .param => .{ item, .none },
     };
     if (bp.variable_map.get(identifier.name)) |prev|
         if (prev.scope == .local)

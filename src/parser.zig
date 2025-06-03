@@ -50,17 +50,17 @@ fn parse_block_item(
 
 fn parse_storage_class(
     tokens: *lexer.Tokenizer,
-) Error!?ast.StorageClass {
+) Error!ast.StorageClass {
     var type_seen = false;
-    var sc: ?ast.StorageClass = null;
+    var sc: ast.StorageClass = .none;
 
     while (tokens.next()) |nt| switch (nt.tag) {
         .type_int => type_seen = true,
-        .keyword_static => sc = if (sc == null)
+        .keyword_static => sc = if (sc == .none)
             .static
         else
             return error.InvalidStorageClass,
-        .keyword_extern => sc = if (sc == null)
+        .keyword_extern => sc = if (sc == .none)
             .@"extern"
         else
             return error.InvalidStorageClass,
@@ -78,7 +78,7 @@ fn parse_decl(
     comptime ty: enum { @"var", either },
     arena: std.mem.Allocator,
     tokens: *lexer.Tokenizer,
-    parsed: union(enum) { yes: ?ast.StorageClass, no },
+    parsed: union(enum) { yes: ast.StorageClass, no },
 ) Error!ast.Decl {
     const sc = if (parsed == .yes) parsed.yes else try parse_storage_class(tokens);
     const name = try expect(.identifier, tokens);
@@ -233,7 +233,7 @@ fn parse_stmt(
                 if (peeked.tag == .semicolon) break :init .none else {
                     tokens.put_back(peeked);
                     if (parse_storage_class(tokens)) |sc| {
-                        if (sc != null) return error.SyntaxError;
+                        if (sc != .none) return error.SyntaxError;
                         const decl = try parse_decl(
                             .@"var",
                             arena,
