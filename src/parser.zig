@@ -1,7 +1,6 @@
 const std = @import("std");
 const ast = @import("ast.zig");
 const lexer = @import("lexer.zig");
-
 const utils = @import("utils.zig");
 
 pub fn parse_prgm(
@@ -51,6 +50,9 @@ fn parse_block_item(
 fn parse_storage_class(
     tokens: *lexer.Tokenizer,
 ) Error!ast.StorageClass {
+    const start_idx = tokens.index;
+    errdefer tokens.index = start_idx;
+
     var type_seen = false;
     var sc: ast.StorageClass = .none;
 
