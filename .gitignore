@@ -2,4 +2,5 @@
 **/.DS_Store
 zig-out
 # no assembly files
-c_files/*.s
+c_files/*
+!c_files/*.c
