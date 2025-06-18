@@ -102,6 +102,11 @@ pub fn run(
             break :parse try ir.prgm_emit_ir(gpa, &strings, &type_map, &ast);
         };
 
+        { // optimization pass
+            _ = args.optimizations;
+            // todo
+        }
+
         var prgm_asm = asm_gen: {
             defer prgm_ir.deinit(gpa);
 
@@ -134,6 +139,8 @@ pub fn run(
                 try asm_writer.print("{gen}\n", .{prgm_asm});
             }
         }
+
+        if (args.mode == .output_assembly) return;
     }
 
     { // assembler
@@ -157,6 +164,7 @@ pub const Args = struct {
     path: [:0]const u8,
     mode: Mode,
     c_flag: bool,
+    optimizations: std.EnumSet(Optimization),
 };
 
 pub const Mode = enum {
@@ -167,6 +175,14 @@ pub const Mode = enum {
     codegen,
     compile, // default
     assembly, // unused by test script - useful for debugging
+    output_assembly, // -S : generate an assembly file
+};
+
+pub const Optimization = enum {
+    @"fold-contants",
+    @"propagate-copies",
+    @"eliminate-unreachable-code",
+    @"eliminate-dead-stores",
 };
 
 pub fn parse_args() !Args {
@@ -176,14 +192,22 @@ pub fn parse_args() !Args {
     var path: ?[:0]const u8 = null;
     var mode: Mode = .compile;
     var c_flag = false;
+    var optimizations: std.EnumSet(Optimization) = .initEmpty();
 
     while (args.next()) |arg| {
         if (arg[0] == '-') {
             if (arg[1] == 'c')
                 c_flag = true
+            else if (arg[1] == 'S' or arg[1] == 's')
+                mode = .output_assembly
+            else if (std.meta.stringToEnum(Mode, arg[2..])) |m|
+                mode = m
+            else if (std.meta.stringToEnum(Optimization, arg[2..])) |opt|
+                optimizations.insert(opt)
+            else if (std.mem.eql(u8, "optimize", arg[2..]))
+                optimizations = .initFull()
             else
-                mode = std.meta.stringToEnum(Mode, arg[2..]) orelse
-                    return error.UnrecognizedFlag;
+                return error.UnrecognizedFlag;
         } else if (path == null)
             path = arg
         else
@@ -194,6 +218,7 @@ pub fn parse_args() !Args {
         .path = path orelse return error.PathNotFound,
         .mode = mode,
         .c_flag = c_flag,
+        .optimizations = optimizations,
     };
 }
 
