@@ -386,7 +386,7 @@ pub const Arrtibutes = union(enum) {
 
     const Init = union(enum) {
         tentative,
-        initial: u64,
+        initial: i32,
         none,
     };
 };

@@ -1,11 +1,21 @@
 const std = @import("std");
 const utils = @import("utils.zig");
 const sema = @import("sema.zig");
+const opt = @import("ir_opt.zig");
 const Identifier = utils.StringInterner.Idx;
 
 pub const Prgm = struct {
     items: std.ArrayListUnmanaged(TopLevel),
     type_map: *sema.TypeMap,
+
+    pub fn optimize(
+        self: *@This(),
+        alloc: std.mem.Allocator,
+        opts: std.EnumSet(opt.Optimization),
+    ) !void {
+        for (self.items.items) |*item| if (item.* == .F)
+            try opt.optimize(alloc, &item.F, opts);
+    }
 
     pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
         for (self.items.items) |*item| if (item.* == .F)
@@ -87,7 +97,7 @@ pub const FuncDef = struct {
 pub const StaticVar = struct {
     name: Identifier,
     global: bool,
-    init: u64,
+    init: i32,
 
     pub fn format(
         self: @This(),
@@ -221,7 +231,7 @@ pub const Instr = union(enum) {
 };
 
 pub const Value = union(enum) {
-    constant: u64,
+    constant: i32,
     variable: Identifier,
 
     pub fn format(

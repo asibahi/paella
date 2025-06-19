@@ -386,7 +386,7 @@ fn parse_factor(
         },
         .number_literal => {
             const lit = tokens.buffer[current.loc.start..current.loc.end];
-            const res = std.fmt.parseInt(u64, lit, 10) catch
+            const res = std.fmt.parseInt(i32, lit, 10) catch
                 return error.InvalidInt;
 
             return .{ .constant = res };

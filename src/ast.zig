@@ -244,7 +244,7 @@ pub const Stmt = union(enum) {
 };
 
 pub const Expr = union(enum) {
-    constant: u64,
+    constant: i32,
     @"var": Identifier,
     assignment: BinOp,
 

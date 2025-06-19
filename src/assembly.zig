@@ -115,7 +115,7 @@ pub const FuncDef = struct {
 pub const StaticVar = struct {
     name: Identifier,
     global: bool,
-    init: u64,
+    init: i32,
 
     pub fn format(
         self: @This(),
@@ -264,7 +264,7 @@ pub const Instr = union(enum) {
 };
 
 pub const Operand = union(enum) {
-    imm: u64,
+    imm: i32,
     reg: Register,
     pseudo: Identifier,
     stack: Offset,

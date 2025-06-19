@@ -20,7 +20,7 @@ pub fn main() !void {
     try run(gpa, args);
 }
 
-pub fn run(
+fn run(
     gpa: std.mem.Allocator,
     args: Args,
 ) !void {
@@ -103,8 +103,7 @@ pub fn run(
         };
 
         { // optimization pass
-            _ = args.optimizations;
-            // todo
+            try prgm_ir.optimize(gpa, args.optimizations);
         }
 
         var prgm_asm = asm_gen: {
@@ -113,6 +112,8 @@ pub fn run(
             if (args.mode == .tacky) {
                 if (bi.mode == .Debug)
                     std.debug.print("{any}\n", .{prgm_ir});
+
+                prgm_ir.type_map.deinit(gpa);
                 return;
             }
 
@@ -160,14 +161,14 @@ pub fn run(
     }
 }
 
-pub const Args = struct {
+const Args = struct {
     path: [:0]const u8,
     mode: Mode,
     c_flag: bool,
     optimizations: std.EnumSet(Optimization),
 };
 
-pub const Mode = enum {
+const Mode = enum {
     lex,
     parse,
     validate,
@@ -178,14 +179,9 @@ pub const Mode = enum {
     output_assembly, // -S : generate an assembly file
 };
 
-pub const Optimization = enum {
-    @"fold-contants",
-    @"propagate-copies",
-    @"eliminate-unreachable-code",
-    @"eliminate-dead-stores",
-};
+const Optimization = @import("ir_opt.zig").Optimization;
 
-pub fn parse_args() !Args {
+fn parse_args() !Args {
     var args = std.process.args();
     _ = args.skip();
 
