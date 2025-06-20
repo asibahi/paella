@@ -1,5 +1,6 @@
 const std = @import("std");
 const ir = @import("ir.zig");
+const utils = @import("utils.zig");
 
 pub const Optimization = enum {
     @"fold-constants",
@@ -21,7 +22,9 @@ pub fn optimize(
         if (opts.contains(.@"fold-constants"))
             work_done = try fold_constants(gpa, func_def) or work_done;
 
-        // var cfg = make_control_flow_graph(gpa, func_def.instrs);
+        var cfg: utils.ControlFlowGraph(ir.Instr) =
+            try .init(gpa, func_def.instrs);
+        defer cfg.deinit(gpa);
 
         // if (opts.contains(.@"eliminate-unreachable-code")) {
         //     work_done = true;
@@ -123,35 +126,4 @@ fn fold_constants(
     };
 
     return work;
-}
-
-fn make_control_flow_graph(
-    _: std.mem.Allocator,
-    _: std.ArrayListUnmanaged(ir.Instr),
-) std.ArrayListUnmanaged(ir.Instr) {
-    // todo
-}
-fn eliminate_unreachable_code(
-    _: std.mem.Allocator,
-    _: std.ArrayListUnmanaged(ir.Instr),
-) std.ArrayListUnmanaged(ir.Instr) {
-    // todo
-}
-fn propagate_copies(
-    _: std.mem.Allocator,
-    _: std.ArrayListUnmanaged(ir.Instr),
-) std.ArrayListUnmanaged(ir.Instr) {
-    // todo
-}
-fn eliminate_dead_stores(
-    _: std.mem.Allocator,
-    _: std.ArrayListUnmanaged(ir.Instr),
-) std.ArrayListUnmanaged(ir.Instr) {
-    // todo
-}
-fn cfg_to_instrs(
-    _: std.mem.Allocator,
-    _: std.ArrayListUnmanaged(ir.Instr),
-) std.ArrayListUnmanaged(ir.Instr) {
-    // todo
 }

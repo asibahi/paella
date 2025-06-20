@@ -100,3 +100,142 @@ pub const StringInterner = struct {
         return name;
     }
 };
+
+// ============ CFG ============
+
+pub const GenericInstr = union(enum) {
+    ret,
+    jmp: StringInterner.Idx,
+    cond_jmp: StringInterner.Idx,
+    label: StringInterner.Idx,
+    other,
+};
+
+pub fn ControlFlowGraph(Instr: type) type {
+    return struct {
+        const Node = union(enum) {
+            entry,
+            exit,
+            tombstone,
+            basic_block: std.ArrayListUnmanaged(Instr),
+        };
+
+        nodes: std.ArrayListUnmanaged(Node),
+        edges: std.ArrayListUnmanaged(struct { usize, usize }),
+
+        pub fn init(
+            gpa: std.mem.Allocator,
+            instrs: std.ArrayListUnmanaged(Instr),
+        ) !@This() {
+            var nodes: std.ArrayListUnmanaged(Node) = .empty;
+            try nodes.append(gpa, .entry);
+
+            { // partition basic blocks
+                var current_node: Node = .{ .basic_block = .empty };
+                for (instrs.items) |instr| switch (instr.to_generic()) {
+                    .label => {
+                        if (current_node.basic_block.items.len > 0)
+                            try nodes.append(gpa, current_node);
+
+                        current_node = .{ .basic_block = .empty };
+                        try current_node.basic_block.append(gpa, instr);
+                    },
+                    .ret, .jmp, .cond_jmp => {
+                        try current_node.basic_block.append(gpa, instr);
+                        try nodes.append(gpa, current_node);
+
+                        current_node = .{ .basic_block = .empty };
+                    },
+                    .other => try current_node.basic_block.append(gpa, instr),
+                };
+                try nodes.append(gpa, .exit);
+            }
+
+            var edges: std.ArrayListUnmanaged(struct { usize, usize }) = .empty;
+
+            { // adding edges
+                // entry to block 1.
+                try edges.append(gpa, .{ 0, 1 });
+                const exit_idx = nodes.items.len - 1;
+
+                for (nodes.items, 0..) |node, idx| if (node == .basic_block) {
+                    const gen = node.basic_block.getLast().to_generic();
+                    switch (gen) {
+                        .ret => try edges.append(gpa, .{ idx, exit_idx }),
+                        .other, .label => try edges.append(gpa, .{ idx, idx + 1 }),
+                        .jmp, .cond_jmp => |l| {
+                            const target_idx = for (nodes.items, 0..) |n, i| {
+                                if (n == .basic_block) {
+                                    const fst = n.basic_block.items[0].to_generic();
+                                    if (fst == .label and fst.label.real_idx == l.real_idx)
+                                        break i;
+                                }
+                            } else unreachable;
+
+                            try edges.append(gpa, .{ idx, target_idx });
+                            if (gen == .cond_jmp)
+                                try edges.append(gpa, .{ idx, idx + 1 });
+                        },
+                    }
+                };
+            }
+
+            return .{
+                .nodes = nodes,
+                .edges = edges,
+            };
+        }
+
+        pub fn deinit(
+            self: *@This(),
+            gpa: std.mem.Allocator,
+        ) void {
+            for (self.nodes.items) |*node| switch (node.*) {
+                .basic_block => |*l| l.deinit(gpa),
+                else => {},
+            };
+            self.nodes.deinit(gpa);
+            self.edges.deinit(gpa);
+        }
+
+        pub fn delete_node(
+            self: *@This(),
+            gpa: std.mem.Allocator,
+            index: usize,
+        ) void {
+            std.debug.assert(self.nodes.items[index] == .basic_block);
+
+            self.nodes.items[index].basic_block.deinit(gpa);
+            self.nodes.items[index] = .tombstone;
+
+            var idx = self.edges.items.len;
+            while (idx > 0) : (idx -= 1) {
+                const edge = self.edges.items[idx - 1];
+                if (edge.@"0" == index or edge.@"1" == index)
+                    _ = self.edges.swapRemove(idx - 1);
+            }
+        }
+
+        pub fn concat(
+            self: @This(),
+            gpa: std.mem.Allocator,
+            instrs: *std.ArrayListUnmanaged(Instr),
+        ) !void {
+            var out: std.ArrayListUnmanaged(Instr) = .empty;
+            defer {
+                std.mem.swap(
+                    std.ArrayListUnmanaged(Instr),
+                    &out,
+                    instrs,
+                );
+                out.deinit(gpa);
+            }
+
+            for (self.nodes.items) |node| if (node == .basic_block)
+                try out.appendSlice(gpa, node.basic_block.items);
+        }
+
+        // todo the rest
+        //
+    };
+}

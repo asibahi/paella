@@ -181,6 +181,18 @@ pub const Instr = union(enum) {
         }
     };
 
+    pub fn to_generic(
+        self: @This(),
+    ) utils.GenericInstr {
+        return switch (self) {
+            .ret => .ret,
+            .jump => |l| .{ .jmp = l },
+            .jump_z, .jump_nz => |j| .{ .cond_jmp = j.target },
+            .label => |l| .{ .label = l },
+            else => .other,
+        };
+    }
+
     pub fn format(
         self: @This(),
         comptime _: []const u8,
