@@ -146,7 +146,7 @@ pub const Instr = union(enum) {
         dst: Value,
     },
 
-    fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
+    pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {
         switch (self.*) {
             .func_call => |*f| f.args.deinit(alloc),
             else => {},

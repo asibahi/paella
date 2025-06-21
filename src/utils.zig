@@ -205,6 +205,10 @@ pub fn ControlFlowGraph(Instr: type) type {
         ) void {
             std.debug.assert(self.nodes.items[index] == .basic_block);
 
+            if (@hasDecl(Instr, "deinit"))
+                for (self.nodes.items[index].basic_block.items) |*instr|
+                    instr.deinit(gpa);
+
             self.nodes.items[index].basic_block.deinit(gpa);
             self.nodes.items[index] = .tombstone;
 
