@@ -16,8 +16,9 @@ pub fn optimize(
 ) !void {
     if (func_def.instrs.items.len == 0) return;
 
-    while (true) {
-        var work_done = false;
+    var work_done = true;
+    while (func_def.instrs.items.len > 0 and work_done) {
+        work_done = false;
 
         if (opts.contains(.@"fold-constants"))
             work_done = try fold_constants(gpa, func_def) or work_done;
@@ -26,10 +27,8 @@ pub fn optimize(
             try .init(gpa, func_def.instrs);
         defer cfg.deinit(gpa);
 
-        // if (opts.contains(.@"eliminate-unreachable-code")) {
-        //     work_done = true;
-        //     cfg = eliminate_unreachable_code(gpa, cfg);
-        // }
+        if (opts.contains(.@"eliminate-unreachable-code"))
+            work_done = try eliminate_unreachable_code(gpa, &cfg) or work_done;
 
         // if (opts.contains(.@"propagate-copies")) {
         //     work_done = true;
@@ -41,12 +40,7 @@ pub fn optimize(
         //     cfg = eliminate_dead_stores(gpa, cfg);
         // }
 
-        // const ret_instrs = cfg_to_instrs(cfg);
-
-        if (func_def.instrs.items.len == 0 or !work_done)
-            return;
-
-        // instrs = ret_instrs;
+        try cfg.concat(gpa, &func_def.instrs);
     }
 }
 
@@ -124,6 +118,85 @@ fn fold_constants(
 
         else => try out.append(gpa, instr),
     };
+
+    return work;
+}
+
+fn eliminate_unreachable_code(
+    gpa: std.mem.Allocator,
+    cfg: *utils.ControlFlowGraph(ir.Instr),
+) !bool {
+    var work = false;
+
+    { // unreachable blocks
+        var done: std.AutoHashMapUnmanaged(usize, void) = .empty;
+        defer done.deinit(gpa);
+
+        var stack: std.ArrayListUnmanaged(usize) = .empty;
+        defer stack.deinit(gpa);
+
+        try stack.append(gpa, 0); // entry
+        while (stack.pop()) |current|
+            if (!done.contains(current)) {
+                for (cfg.edges.items) |edge|
+                    if (edge.@"0" == current)
+                        try stack.append(gpa, edge.@"1");
+
+                try done.put(gpa, current, {});
+            };
+
+        for (0..cfg.nodes.items.len) |idx|
+            if (!done.contains(idx) and
+                cfg.nodes.items[idx] == .basic_block)
+            {
+                work = true;
+                cfg.delete_node(gpa, idx);
+            };
+    }
+
+    { // remove redundant jumps
+        var idx = cfg.nodes.items.len - 1;
+        var next_idx = idx;
+        while (idx > 0) : (idx -= 1) if (cfg.nodes.items[idx] == .basic_block) {
+            defer next_idx = idx;
+            if (next_idx == cfg.nodes.items.len - 1)
+                continue; // skip checking the last block
+
+            const last_instr: ir.Instr =
+                cfg.nodes.items[idx].basic_block.getLastOrNull() orelse
+                continue;
+
+            if (last_instr == .jump or
+                last_instr == .jump_z or
+                last_instr == .jump_nz)
+            {
+                for (cfg.edges.items) |edge| {
+                    if (edge.@"0" == idx and edge.@"1" != next_idx)
+                        break;
+                } else {
+                    work = true;
+                    _ = cfg.nodes.items[idx].basic_block.pop();
+                }
+            }
+        };
+    }
+
+    { // remove redundant jumps
+        var prev_idx: usize = 0;
+        for (cfg.nodes.items, 0..) |*node, idx| if (node.* == .basic_block) {
+            defer prev_idx = idx;
+            if (node.basic_block.items.len == 0) continue;
+
+            if (node.basic_block.items[0] == .label)
+                for (cfg.edges.items) |edge| {
+                    if (edge.@"0" != prev_idx and edge.@"1" == idx)
+                        break;
+                } else {
+                    work = true;
+                    _ = node.basic_block.orderedRemove(0);
+                };
+        };
+    }
 
     return work;
 }
