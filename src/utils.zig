@@ -113,8 +113,8 @@ pub const GenericInstr = union(enum) {
 
 pub fn ControlFlowGraph(Instr: type) type {
     return struct {
-        const InstrIdx = usize;
-        const NodeIdx = usize; // to avoid confusing the two indices.
+        pub const InstrIdx = usize;
+        pub const NodeIdx = usize; // to avoid confusing the two indices.
         const Node = union(enum) {
             entry,
             exit,
@@ -122,11 +122,14 @@ pub fn ControlFlowGraph(Instr: type) type {
             basic_block: std.ArrayListUnmanaged(InstrIdx),
         };
 
-        annotations_arena: std.heap.ArenaAllocator,
         og_instrs: []Instr,
 
-        nodes: std.ArrayListUnmanaged(Node),
+        nodes: []Node,
         edges: std.ArrayListUnmanaged(struct { NodeIdx, NodeIdx }),
+
+        annotations_arena: std.heap.ArenaAllocator,
+        instrs_annotations: [][]InstrIdx,
+        node_annotations: [][]InstrIdx,
 
         pub fn init(
             gpa: std.mem.Allocator,
@@ -156,7 +159,7 @@ pub fn ControlFlowGraph(Instr: type) type {
                 try nodes.append(gpa, .exit);
             }
 
-            var edges: std.ArrayListUnmanaged(struct { usize, usize }) = .empty;
+            var edges: std.ArrayListUnmanaged(struct { NodeIdx, NodeIdx }) = .empty;
 
             { // adding edges
                 // entry to block 1.
@@ -187,12 +190,21 @@ pub fn ControlFlowGraph(Instr: type) type {
                 };
             }
 
+            const instrs_annotations = try gpa.alloc([]InstrIdx, instrs.items.len);
+            @memset(instrs_annotations, &.{});
+
+            const node_annotations = try gpa.alloc([]InstrIdx, nodes.items.len);
+            @memset(node_annotations, &.{});
+
             return .{
-                .annotations_arena = .init(gpa),
                 .og_instrs = try gpa.dupe(Instr, instrs.items),
 
-                .nodes = nodes,
+                .nodes = try nodes.toOwnedSlice(gpa),
                 .edges = edges,
+
+                .annotations_arena = .init(gpa),
+                .instrs_annotations = instrs_annotations,
+                .node_annotations = node_annotations,
             };
         }
 
@@ -201,10 +213,10 @@ pub fn ControlFlowGraph(Instr: type) type {
             gpa: std.mem.Allocator,
             index: usize,
         ) void {
-            std.debug.assert(self.nodes.items[index] == .basic_block);
+            std.debug.assert(self.nodes[index] == .basic_block);
 
-            self.nodes.items[index].basic_block.deinit(gpa);
-            self.nodes.items[index] = .tombstone;
+            self.nodes[index].basic_block.deinit(gpa);
+            self.nodes[index] = .tombstone;
 
             var idx = self.edges.items.len;
             while (idx > 0) : (idx -= 1) {
@@ -214,20 +226,44 @@ pub fn ControlFlowGraph(Instr: type) type {
             }
         }
 
+        pub fn annotate_block(
+            self: @This(),
+            idx: NodeIdx,
+            annotation: []usize,
+        ) !void {
+            std.debug.assert(self.nodes[idx] == .basic_block);
+            self.node_annotations[idx] =
+                try self.annotations_arena.allocator().dupe(usize, annotation);
+        }
+
+        pub fn annotate_instr(
+            self: @This(),
+            idx: InstrIdx,
+            annotation: []usize,
+        ) !void {
+            self.instrs_annotations[idx] =
+                try self.annotations_arena.allocator().dupe(usize, annotation);
+        }
+
         pub fn concat_and_deinit(
             self: *@This(),
             gpa: std.mem.Allocator,
             instrs: *std.ArrayListUnmanaged(Instr),
         ) !void {
             defer { // deinit
-                for (self.nodes.items) |*node| switch (node.*) {
+                // items in these arrays are allocated in the arena.
+                gpa.free(self.instrs_annotations);
+                gpa.free(self.node_annotations);
+
+                self.annotations_arena.deinit();
+
+                for (self.nodes) |*node| switch (node.*) {
                     .basic_block => |*l| l.deinit(gpa),
                     else => {},
                 };
                 gpa.free(self.og_instrs);
-                self.annotations_arena.deinit();
 
-                self.nodes.deinit(gpa);
+                gpa.free(self.nodes);
                 self.edges.deinit(gpa);
             }
 
@@ -248,7 +284,7 @@ pub fn ControlFlowGraph(Instr: type) type {
                 var used_idx: std.AutoHashMapUnmanaged(usize, void) = .empty;
                 defer used_idx.deinit(gpa);
 
-                for (self.nodes.items) |node| if (node == .basic_block)
+                for (self.nodes) |node| if (node == .basic_block)
                     for (node.basic_block.items) |idx| {
                         try out.append(gpa, self.og_instrs[idx]);
                         try used_idx.put(gpa, idx, {});

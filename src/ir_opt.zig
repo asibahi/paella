@@ -2,6 +2,8 @@ const std = @import("std");
 const ir = @import("ir.zig");
 const utils = @import("utils.zig");
 
+const CFG = utils.ControlFlowGraph(ir.Instr);
+
 pub const Optimization = enum {
     @"fold-constants",
     @"propagate-copies",
@@ -23,8 +25,7 @@ pub fn optimize(
         if (opts.contains(.@"fold-constants"))
             work_done = try fold_constants(gpa, func_def) or work_done;
 
-        var cfg: utils.ControlFlowGraph(ir.Instr) =
-            try .init(gpa, func_def.instrs);
+        var cfg: CFG = try .init(gpa, func_def.instrs);
 
         if (opts.contains(.@"eliminate-unreachable-code"))
             work_done = try eliminate_unreachable_code(gpa, &cfg) or work_done;
@@ -123,7 +124,7 @@ fn fold_constants(
 
 fn eliminate_unreachable_code(
     gpa: std.mem.Allocator,
-    cfg: *utils.ControlFlowGraph(ir.Instr),
+    cfg: *CFG,
 ) !bool {
     var work = false;
 
@@ -144,9 +145,9 @@ fn eliminate_unreachable_code(
                 try done.put(gpa, current, {});
             };
 
-        for (0..cfg.nodes.items.len) |idx|
+        for (0..cfg.nodes.len) |idx|
             if (!done.contains(idx) and
-                cfg.nodes.items[idx] == .basic_block)
+                cfg.nodes[idx] == .basic_block)
             {
                 work = true;
                 cfg.delete_node(gpa, idx);
@@ -154,15 +155,15 @@ fn eliminate_unreachable_code(
     }
 
     { // remove redundant jumps
-        var idx = cfg.nodes.items.len - 1;
+        var idx = cfg.nodes.len - 1;
         var next_idx = idx;
-        while (idx > 0) : (idx -= 1) if (cfg.nodes.items[idx] == .basic_block) {
+        while (idx > 0) : (idx -= 1) if (cfg.nodes[idx] == .basic_block) {
             defer next_idx = idx;
-            if (next_idx == cfg.nodes.items.len - 1)
+            if (next_idx == cfg.nodes.len - 1)
                 continue; // skip checking the last block
 
             const last_instr: ir.Instr = lbl: {
-                const ii = cfg.nodes.items[idx].basic_block.getLastOrNull() orelse
+                const ii = cfg.nodes[idx].basic_block.getLastOrNull() orelse
                     continue;
                 break :lbl cfg.og_instrs[ii];
             };
@@ -176,7 +177,7 @@ fn eliminate_unreachable_code(
                         break;
                 } else {
                     work = true;
-                    _ = cfg.nodes.items[idx].basic_block.pop();
+                    _ = cfg.nodes[idx].basic_block.pop();
                 }
             }
         };
@@ -184,7 +185,7 @@ fn eliminate_unreachable_code(
 
     { // remove redundant jumps
         var prev_idx: usize = 0;
-        for (cfg.nodes.items, 0..) |*node, idx| if (node.* == .basic_block) {
+        for (cfg.nodes, 0..) |*node, idx| if (node.* == .basic_block) {
             defer prev_idx = idx;
             if (node.basic_block.items.len == 0) continue;
 
@@ -200,4 +201,60 @@ fn eliminate_unreachable_code(
     }
 
     return work;
+}
+
+fn find_reaching_copies(
+    gpa: std.mem.Allocator,
+    cfg: *CFG,
+    meet: fn (CFG.NodeIdx, []CFG.InstrIdx) []CFG.InstrIdx,
+    transfer: fn (CFG.NodeIdx, []CFG.InstrIdx) void,
+) !void {
+    const all_copies = a: {
+        var idxs: std.ArrayListUnmanaged(usize) = .empty;
+        for (cfg.og_instrs, 0..) |instr, idx|
+            if (instr == .copy)
+                try idxs.append(gpa, idx);
+
+        break :a try idxs.toOwnedSlice(gpa);
+    };
+
+    var worklist: std.fifo.LinearFifo(
+        CFG.NodeIdx,
+        .Dynamic,
+    ) = .initDynamic(gpa);
+
+    for (cfg.nodes.items, 0..) |*node, idx| if (node.* == .basic_block) {
+        try worklist.writeItem(idx);
+        cfg.annotate_block(idx, all_copies);
+    };
+
+    while (worklist.readItem()) |block_idx| {
+        // should use scratch memory
+        const old_annotation =
+            try gpa.dupe([]usize, cfg.node_annotations[block_idx]);
+        defer gpa.free(old_annotation);
+
+        const incoming_copies = meet(block_idx, all_copies);
+        transfer(block_idx, incoming_copies);
+
+        if (!std.mem.eql(
+            []usize,
+            old_annotation,
+            cfg.node_annotations[block_idx],
+        )) {
+            for (cfg.edges.items) |edge| if (edge.@"0" == block_idx) {
+                const successor_id = edge.@"1";
+                switch (cfg.nodes.items[successor_id]) {
+                    .entry, .tombstone => return error.MalformedCFG,
+                    .exit => continue,
+                    .basic_block => |succ_idx| if (!std.mem.containsAtLeastScalar(
+                        usize,
+                        worklist.readableSlice(0),
+                        1,
+                        succ_idx,
+                    )) try worklist.writeItem(succ_idx),
+                }
+            };
+        }
+    }
 }
