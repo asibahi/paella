@@ -113,15 +113,20 @@ pub const GenericInstr = union(enum) {
 
 pub fn ControlFlowGraph(Instr: type) type {
     return struct {
+        const InstrIdx = usize;
+        const NodeIdx = usize; // to avoid confusing the two indices.
         const Node = union(enum) {
             entry,
             exit,
             tombstone,
-            basic_block: std.ArrayListUnmanaged(Instr),
+            basic_block: std.ArrayListUnmanaged(InstrIdx),
         };
 
+        annotations_arena: std.heap.ArenaAllocator,
+        og_instrs: []Instr,
+
         nodes: std.ArrayListUnmanaged(Node),
-        edges: std.ArrayListUnmanaged(struct { usize, usize }),
+        edges: std.ArrayListUnmanaged(struct { NodeIdx, NodeIdx }),
 
         pub fn init(
             gpa: std.mem.Allocator,
@@ -132,21 +137,21 @@ pub fn ControlFlowGraph(Instr: type) type {
 
             { // partition basic blocks
                 var current_node: Node = .{ .basic_block = .empty };
-                for (instrs.items) |instr| switch (instr.to_generic()) {
+                for (instrs.items, 0..) |instr, idx| switch (instr.to_generic()) {
                     .label => {
                         if (current_node.basic_block.items.len > 0)
                             try nodes.append(gpa, current_node);
 
                         current_node = .{ .basic_block = .empty };
-                        try current_node.basic_block.append(gpa, instr);
+                        try current_node.basic_block.append(gpa, idx);
                     },
                     .ret, .jmp, .cond_jmp => {
-                        try current_node.basic_block.append(gpa, instr);
+                        try current_node.basic_block.append(gpa, idx);
                         try nodes.append(gpa, current_node);
 
                         current_node = .{ .basic_block = .empty };
                     },
-                    .other => try current_node.basic_block.append(gpa, instr),
+                    .other => try current_node.basic_block.append(gpa, idx),
                 };
                 try nodes.append(gpa, .exit);
             }
@@ -159,43 +164,36 @@ pub fn ControlFlowGraph(Instr: type) type {
                 const exit_idx = nodes.items.len - 1;
 
                 for (nodes.items, 0..) |node, idx| if (node == .basic_block) {
-                    const gen = node.basic_block.getLast().to_generic();
-                    switch (gen) {
+                    const last_idx = node.basic_block.getLast();
+                    instr: switch (instrs.items[last_idx].to_generic()) {
                         .ret => try edges.append(gpa, .{ idx, exit_idx }),
                         .other, .label => try edges.append(gpa, .{ idx, idx + 1 }),
-                        .jmp, .cond_jmp => |l| {
-                            const target_idx = for (nodes.items, 0..) |n, i| {
+                        .cond_jmp => |l| {
+                            try edges.append(gpa, .{ idx, idx + 1 });
+                            continue :instr .{ .jmp = l };
+                        },
+                        .jmp => |l| try edges.append(gpa, .{
+                            idx, for (nodes.items, 0..) |n, i| {
                                 if (n == .basic_block) {
-                                    const fst = n.basic_block.items[0].to_generic();
-                                    if (fst == .label and fst.label.real_idx == l.real_idx)
+                                    const fst_idx = n.basic_block.items[0];
+                                    const fst = instrs.items[fst_idx].to_generic();
+                                    if (fst == .label and
+                                        fst.label.real_idx == l.real_idx)
                                         break i;
                                 }
-                            } else unreachable;
-
-                            try edges.append(gpa, .{ idx, target_idx });
-                            if (gen == .cond_jmp)
-                                try edges.append(gpa, .{ idx, idx + 1 });
-                        },
+                            } else unreachable,
+                        }),
                     }
                 };
             }
 
             return .{
+                .annotations_arena = .init(gpa),
+                .og_instrs = try gpa.dupe(Instr, instrs.items),
+
                 .nodes = nodes,
                 .edges = edges,
             };
-        }
-
-        pub fn deinit(
-            self: *@This(),
-            gpa: std.mem.Allocator,
-        ) void {
-            for (self.nodes.items) |*node| switch (node.*) {
-                .basic_block => |*l| l.deinit(gpa),
-                else => {},
-            };
-            self.nodes.deinit(gpa);
-            self.edges.deinit(gpa);
         }
 
         pub fn delete_node(
@@ -204,10 +202,6 @@ pub fn ControlFlowGraph(Instr: type) type {
             index: usize,
         ) void {
             std.debug.assert(self.nodes.items[index] == .basic_block);
-
-            if (@hasDecl(Instr, "deinit"))
-                for (self.nodes.items[index].basic_block.items) |*instr|
-                    instr.deinit(gpa);
 
             self.nodes.items[index].basic_block.deinit(gpa);
             self.nodes.items[index] = .tombstone;
@@ -220,26 +214,53 @@ pub fn ControlFlowGraph(Instr: type) type {
             }
         }
 
-        pub fn concat(
-            self: @This(),
+        pub fn concat_and_deinit(
+            self: *@This(),
             gpa: std.mem.Allocator,
             instrs: *std.ArrayListUnmanaged(Instr),
         ) !void {
-            var out: std.ArrayListUnmanaged(Instr) = .empty;
-            defer {
-                std.mem.swap(
-                    std.ArrayListUnmanaged(Instr),
-                    &out,
-                    instrs,
-                );
-                out.deinit(gpa);
+            defer { // deinit
+                for (self.nodes.items) |*node| switch (node.*) {
+                    .basic_block => |*l| l.deinit(gpa),
+                    else => {},
+                };
+                gpa.free(self.og_instrs);
+                self.annotations_arena.deinit();
+
+                self.nodes.deinit(gpa);
+                self.edges.deinit(gpa);
             }
 
-            for (self.nodes.items) |node| if (node == .basic_block)
-                try out.appendSlice(gpa, node.basic_block.items);
-        }
+            { // concat
+                var out: std.ArrayListUnmanaged(Instr) = try .initCapacity(
+                    gpa,
+                    instrs.items.len,
+                );
+                defer {
+                    std.mem.swap(
+                        std.ArrayListUnmanaged(Instr),
+                        &out,
+                        instrs,
+                    );
+                    out.deinit(gpa);
+                }
 
-        // todo the rest
-        //
+                var used_idx: std.AutoHashMapUnmanaged(usize, void) = .empty;
+                defer used_idx.deinit(gpa);
+
+                for (self.nodes.items) |node| if (node == .basic_block)
+                    for (node.basic_block.items) |idx| {
+                        try out.append(gpa, self.og_instrs[idx]);
+                        try used_idx.put(gpa, idx, {});
+                    };
+
+                // deinit unused instructions
+                if (@hasDecl(Instr, "deinit"))
+                    for (instrs.items, 0..) |*instr, idx| {
+                        if (used_idx.contains(idx)) continue;
+                        instr.deinit(gpa);
+                    };
+            }
+        }
     };
 }

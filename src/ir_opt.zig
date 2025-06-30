@@ -25,7 +25,6 @@ pub fn optimize(
 
         var cfg: utils.ControlFlowGraph(ir.Instr) =
             try .init(gpa, func_def.instrs);
-        defer cfg.deinit(gpa);
 
         if (opts.contains(.@"eliminate-unreachable-code"))
             work_done = try eliminate_unreachable_code(gpa, &cfg) or work_done;
@@ -40,7 +39,7 @@ pub fn optimize(
         //     cfg = eliminate_dead_stores(gpa, cfg);
         // }
 
-        try cfg.concat(gpa, &func_def.instrs);
+        try cfg.concat_and_deinit(gpa, &func_def.instrs);
     }
 }
 
@@ -162,9 +161,11 @@ fn eliminate_unreachable_code(
             if (next_idx == cfg.nodes.items.len - 1)
                 continue; // skip checking the last block
 
-            const last_instr: ir.Instr =
-                cfg.nodes.items[idx].basic_block.getLastOrNull() orelse
-                continue;
+            const last_instr: ir.Instr = lbl: {
+                const ii = cfg.nodes.items[idx].basic_block.getLastOrNull() orelse
+                    continue;
+                break :lbl cfg.og_instrs[ii];
+            };
 
             if (last_instr == .jump or
                 last_instr == .jump_z or
@@ -187,7 +188,7 @@ fn eliminate_unreachable_code(
             defer prev_idx = idx;
             if (node.basic_block.items.len == 0) continue;
 
-            if (node.basic_block.items[0] == .label)
+            if (cfg.og_instrs[node.basic_block.items[0]] == .label)
                 for (cfg.edges.items) |edge| {
                     if (edge.@"0" != prev_idx and edge.@"1" == idx)
                         break;
