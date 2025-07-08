@@ -14,7 +14,12 @@ pub const Prgm = struct {
         opts: std.EnumSet(opt.Optimization),
     ) !void {
         for (self.items.items) |*item| if (item.* == .F)
-            try opt.optimize(alloc, &item.F, opts);
+            try opt.optimize(
+                alloc,
+                self.type_map,
+                &item.F,
+                opts,
+            );
     }
 
     pub fn deinit(self: *@This(), alloc: std.mem.Allocator) void {

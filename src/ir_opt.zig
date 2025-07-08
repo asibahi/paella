@@ -1,8 +1,8 @@
 const std = @import("std");
 const ir = @import("ir.zig");
-const utils = @import("utils.zig");
 
-const CFG = utils.ControlFlowGraph(ir.Instr);
+const TypeMap = @import("sema.zig").TypeMap; // this should be in utils
+const CFG = @import("utils.zig").ControlFlowGraph(ir.Instr);
 
 pub const Optimization = enum {
     @"fold-constants",
@@ -13,6 +13,7 @@ pub const Optimization = enum {
 
 pub fn optimize(
     gpa: std.mem.Allocator,
+    type_map: *TypeMap,
     func_def: *ir.FuncDef,
     opts: std.EnumSet(Optimization),
 ) !void {
@@ -25,7 +26,7 @@ pub fn optimize(
         if (opts.contains(.@"fold-constants"))
             work_done = try fold_constants(gpa, func_def) or work_done;
 
-        var cfg: CFG = try .init(gpa, func_def.instrs);
+        var cfg: CFG = try .init(gpa, type_map, func_def.instrs);
 
         if (opts.contains(.@"eliminate-unreachable-code"))
             work_done = try eliminate_unreachable_code(gpa, &cfg) or work_done;
@@ -206,8 +207,8 @@ fn eliminate_unreachable_code(
 fn find_reaching_copies(
     gpa: std.mem.Allocator,
     cfg: *CFG,
-    meet: fn (CFG.NodeIdx, []CFG.InstrIdx) []CFG.InstrIdx,
-    transfer: fn (CFG.NodeIdx, []CFG.InstrIdx) void,
+    meet: fn (*CFG, CFG.NodeIdx, []CFG.InstrIdx) []CFG.InstrIdx,
+    transfer: fn (*CFG, CFG.NodeIdx, []CFG.InstrIdx) void,
 ) !void {
     const all_copies = a: {
         var idxs: std.ArrayListUnmanaged(usize) = .empty;
@@ -234,8 +235,8 @@ fn find_reaching_copies(
             try gpa.dupe([]usize, cfg.node_annotations[block_idx]);
         defer gpa.free(old_annotation);
 
-        const incoming_copies = meet(block_idx, all_copies);
-        transfer(block_idx, incoming_copies);
+        const incoming_copies = meet(cfg, block_idx, all_copies);
+        transfer(cfg, block_idx, incoming_copies);
 
         if (!std.mem.eql(
             []usize,
@@ -256,5 +257,92 @@ fn find_reaching_copies(
                 }
             };
         }
+    }
+}
+
+fn reaching_copies_transfer(
+    cfg: *CFG,
+    block_idx: CFG.NodeIdx,
+    init_copies: []CFG.InstrIdx,
+) void {
+    // to catch bugs
+    std.debug.assert(cfg.nodes[block_idx] == .basic_block);
+
+    var current_reaching_copies: std.BoundedArray(usize, cfg.og_instrs.len) =
+        try .fromSlice(init_copies);
+
+    outer: for (cfg.nodes[block_idx].basic_block.items) |instr| {
+        cfg.annotate_instr(instr, current_reaching_copies.slice());
+        var copies_remain: std.BoundedArray(
+            usize,
+            current_reaching_copies.len,
+        ) = try .init(0);
+
+        switch (cfg.og_instrs[instr]) {
+            .copy => |u| {
+                for (current_reaching_copies) |copy| {
+                    const c = cfg.og_instrs[copy];
+                    const cond1 = c.copy.src == u.dst;
+                    const cond2 = c.copy.dst == u.src;
+
+                    // if Copy(dst, src) is in current_reaching_copies
+                    // continue outer
+                    if (cond1 and cond2)
+                        continue :outer;
+
+                    if (!(cond1 or cond2))
+                        try copies_remain.append(copy);
+                }
+
+                try copies_remain.append(instr);
+            },
+            .func_call => |f| for (current_reaching_copies) |copy| {
+                const c = cfg.og_instrs[copy];
+                const cond1 = c.copy.src == .variable and
+                    cfg.type_map.get(c.copy.src.variable.real_idx).? == .static;
+                const cond2 = c.copy.dst == .variable and
+                    cfg.type_map.get(c.copy.dst.variable.real_idx).? == .static;
+                const cond3 = c.copy.src == f.dst;
+                const cond4 = c.copy.dst == f.dst;
+
+                if (!(cond1 or cond2 or cond3 or cond4))
+                    try copies_remain.append(copy);
+            },
+            .unop_not,
+            .unop_neg,
+            .unop_lnot,
+            => |u| for (current_reaching_copies) |copy| {
+                const c = cfg.og_instrs[copy];
+                const cond1 = c.copy.src == u.dst;
+                const cond2 = c.copy.dst == u.src;
+
+                if (!(cond1 or cond2))
+                    try copies_remain.append(copy);
+            },
+            .binop_add,
+            .binop_sub,
+            .binop_mul,
+            .binop_div,
+            .binop_rem,
+            .binop_eql,
+            .binop_neq,
+            .binop_le,
+            .binop_lt,
+            .binop_ge,
+            .binop_gt,
+            => |b| for (current_reaching_copies) |copy| {
+                const c = cfg.og_instrs[copy];
+                const cond1 = c.copy.src == b.dst;
+                const cond2 = c.copy.dst == b.src1;
+                const cond3 = c.copy.dst == b.src2;
+
+                if (!(cond1 or cond2 or cond3))
+                    try copies_remain.append(copy);
+            },
+        }
+
+        // NOT deferred. because of the `continue`
+        current_reaching_copies.clear();
+        try current_reaching_copies.appendSlice(copies_remain.slice());
     }
 }

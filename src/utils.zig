@@ -113,6 +113,8 @@ pub const GenericInstr = union(enum) {
 
 pub fn ControlFlowGraph(Instr: type) type {
     return struct {
+        const TypeMap = @import("sema.zig").TypeMap;
+
         pub const InstrIdx = usize;
         pub const NodeIdx = usize; // to avoid confusing the two indices.
         const Node = union(enum) {
@@ -123,6 +125,7 @@ pub fn ControlFlowGraph(Instr: type) type {
         };
 
         og_instrs: []Instr,
+        type_map: *TypeMap,
 
         nodes: []Node,
         edges: std.ArrayListUnmanaged(struct { NodeIdx, NodeIdx }),
@@ -133,6 +136,7 @@ pub fn ControlFlowGraph(Instr: type) type {
 
         pub fn init(
             gpa: std.mem.Allocator,
+            type_map: *TypeMap,
             instrs: std.ArrayListUnmanaged(Instr),
         ) !@This() {
             var nodes: std.ArrayListUnmanaged(Node) = .empty;
@@ -198,6 +202,7 @@ pub fn ControlFlowGraph(Instr: type) type {
 
             return .{
                 .og_instrs = try gpa.dupe(Instr, instrs.items),
+                .type_map = type_map,
 
                 .nodes = try nodes.toOwnedSlice(gpa),
                 .edges = edges,
