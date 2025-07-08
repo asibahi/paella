@@ -282,8 +282,8 @@ fn reaching_copies_transfer(
             .copy => |u| {
                 for (current_reaching_copies) |copy| {
                     const c = cfg.og_instrs[copy];
-                    const cond1 = c.copy.src == u.dst;
-                    const cond2 = c.copy.dst == u.src;
+                    const cond1 = c.copy.src.eq(u.dst);
+                    const cond2 = c.copy.dst.eq(u.src);
 
                     // if Copy(dst, src) is in current_reaching_copies
                     // continue outer
@@ -302,8 +302,8 @@ fn reaching_copies_transfer(
                     cfg.type_map.get(c.copy.src.variable.real_idx).? == .static;
                 const cond2 = c.copy.dst == .variable and
                     cfg.type_map.get(c.copy.dst.variable.real_idx).? == .static;
-                const cond3 = c.copy.src == f.dst;
-                const cond4 = c.copy.dst == f.dst;
+                const cond3 = c.copy.src.eq(f.dst);
+                const cond4 = c.copy.dst.eq(f.dst);
 
                 if (!(cond1 or cond2 or cond3 or cond4))
                     try copies_remain.append(copy);
@@ -313,8 +313,8 @@ fn reaching_copies_transfer(
             .unop_lnot,
             => |u| for (current_reaching_copies) |copy| {
                 const c = cfg.og_instrs[copy];
-                const cond1 = c.copy.src == u.dst;
-                const cond2 = c.copy.dst == u.src;
+                const cond1 = c.copy.src.eq(u.dst);
+                const cond2 = c.copy.dst.eq(u.src);
 
                 if (!(cond1 or cond2))
                     try copies_remain.append(copy);
@@ -332,9 +332,9 @@ fn reaching_copies_transfer(
             .binop_gt,
             => |b| for (current_reaching_copies) |copy| {
                 const c = cfg.og_instrs[copy];
-                const cond1 = c.copy.src == b.dst;
-                const cond2 = c.copy.dst == b.src1;
-                const cond3 = c.copy.dst == b.src2;
+                const cond1 = c.copy.src.eq(b.dst);
+                const cond2 = c.copy.dst.eq(b.src1);
+                const cond3 = c.copy.dst.eq(b.src2);
 
                 if (!(cond1 or cond2 or cond3))
                     try copies_remain.append(copy);

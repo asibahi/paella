@@ -251,6 +251,18 @@ pub const Value = union(enum) {
     constant: i32,
     variable: Identifier,
 
+    pub fn eq(
+        lhs: @This(),
+        rhs: @This(),
+    ) bool {
+        return if (lhs == .constant and rhs == .constant)
+            lhs.constant == rhs.constant
+        else if (lhs == .variable and rhs == .variable)
+            lhs.variable.real_idx == rhs.variable.real_idx
+        else
+            false;
+    }
+
     pub fn format(
         self: @This(),
         comptime _: []const u8,
