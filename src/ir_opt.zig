@@ -248,12 +248,12 @@ fn find_reaching_copies(
                 switch (cfg.nodes.items[successor_id]) {
                     .entry, .tombstone => return error.MalformedCFG,
                     .exit => continue,
-                    .basic_block => |succ_idx| if (!std.mem.containsAtLeastScalar(
+                    .basic_block => if (!std.mem.containsAtLeastScalar(
                         usize,
                         worklist.readableSlice(0),
                         1,
-                        succ_idx,
-                    )) try worklist.writeItem(succ_idx),
+                        successor_id,
+                    )) try worklist.writeItem(successor_id),
                 }
             };
         }
@@ -345,4 +345,43 @@ fn reaching_copies_transfer(
         current_reaching_copies.clear();
         try current_reaching_copies.appendSlice(copies_remain.slice());
     }
+}
+
+fn reaching_copies_meet(
+    cfg: *CFG,
+    block_idx: CFG.NodeIdx,
+    all_copies: []CFG.InstrIdx,
+) ![]CFG.InstrIdx {
+    var incoming_copies = all_copies;
+
+    for (cfg.edges.items) |edge| if (edge.@"1" == block_idx) {
+        const pred_id = edge.@"0";
+        switch (cfg.nodes.items[pred_id]) {
+            .exit, .tombstone => return error.MalformedCFG,
+            .entry => return &.{},
+            .basic_block => {
+                const pred_out_copies = cfg.node_annotations[pred_id];
+                incoming_copies = try intersect_slices(
+                    cfg.annotations_arena.allocator(),
+                    incoming_copies,
+                    pred_out_copies,
+                );
+            },
+        }
+    };
+
+    return incoming_copies;
+}
+
+fn intersect_slices(
+    alloc: std.mem.Allocator,
+    a: []usize,
+    b: []usize,
+) ![]usize {
+    var out: std.ArrayListUnmanaged(usize) = try .initCapacity(alloc, a.len);
+    for (a) |item|
+        if (std.mem.containsAtLeastScalar(usize, b, 1, item))
+            out.appendAssumeCapacity(item);
+
+    return try out.toOwnedSlice(alloc);
 }
